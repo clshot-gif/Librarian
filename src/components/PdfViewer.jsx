@@ -34,6 +34,20 @@ export default function PdfViewer({
   const gestureRef = useRef(null);
   const strokeRef = useRef(null);
 
+  // Re-fit when the container changes size (window resize, tablet rotate).
+  const [fitKey, setFitKey] = useState(0);
+  useEffect(() => {
+    const outer = outerRef.current;
+    if (!outer) return;
+    let t;
+    const ro = new ResizeObserver(() => {
+      clearTimeout(t);
+      t = setTimeout(() => setFitKey((k) => k + 1), 150);
+    });
+    ro.observe(outer);
+    return () => { ro.disconnect(); clearTimeout(t); };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -51,7 +65,7 @@ export default function PdfViewer({
       setTransform({ scale: 1, tx: 0, ty: 0 });
     })();
     return () => { cancelled = true; };
-  }, [pdfjsDoc, pageIndex]);
+  }, [pdfjsDoc, pageIndex, fitKey]);
 
   // Wheel zoom needs a non-passive listener (preventDefault on scroll).
   useEffect(() => {

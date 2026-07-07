@@ -360,8 +360,14 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
               className="title-input"
               placeholder="Title (optional)…"
               value={item.title}
-              autoFocus={titleEditId === item.id}
-              onFocus={() => setTitleEditId(null)}
+              // focus({preventScroll}) instead of autoFocus: the browser's
+              // default focus-scroll can yank the grid and hide other cards.
+              ref={(el) => {
+                if (el && titleEditId === item.id) {
+                  el.focus({ preventScroll: true });
+                  setTitleEditId(null);
+                }
+              }}
               onChange={(e) => setDocTitle(item.id, e.target.value)}
             />
           </>
