@@ -75,27 +75,58 @@ function drawMarkupOn(page, rand) {
   });
 }
 
-export function drawNotesEntries(page, font, fontBold, entries) {
+// Mirrors the mobile app's own notes-page layout (ConfirmationScreen.js
+// buildPDF): a small bold uppercase "Page N" heading per photographed page
+// that had a comment or OMG flag, each line under it plain text (OMG lines
+// bold red, matching .notes-omg), then a document-level footer — separated
+// by a rule — for Tags/Box/Folder. `content` is
+// { blocks: [{heading, lines: [{text, omg}]}], footerLines: [string] }.
+function wrapLines(text, maxChars) {
+  return (text.match(new RegExp(`.{1,${maxChars}}(\\s|$)`, 'g')) || [text]).map((c) => c.trim());
+}
+
+export function drawNotesEntries(page, font, fontBold, content) {
+  const { blocks = [], footerLines = [] } = Array.isArray(content) ? { blocks: [], footerLines: content } : content;
   page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(1, 1, 0.98) });
   page.drawText('Notes', { x: 60, y: PAGE_H - 80, size: 22, font: fontBold, color: rgb(0.15, 0.15, 0.2) });
   page.drawLine({
     start: { x: 60, y: PAGE_H - 92 }, end: { x: PAGE_W - 60, y: PAGE_H - 92 },
     thickness: 1, color: rgb(0.7, 0.7, 0.75),
   });
-  let y = PAGE_H - 130;
-  for (const line of entries) {
-    // Naive wrap at ~86 chars — notes are short, this is fine.
-    const chunks = line.match(/.{1,86}(\s|$)/g) || [line];
-    for (const chunk of chunks) {
-      if (y < 60) return;
-      page.drawText(chunk.trim(), { x: 60, y, size: 11, font, color: rgb(0.2, 0.2, 0.25) });
-      y -= 18;
+  let y = PAGE_H - 128;
+  const draw = (text, opts) => {
+    for (const chunk of wrapLines(text, 86)) {
+      if (y < 60) return false;
+      page.drawText(chunk, { x: 60, y, size: opts.size, font: opts.font, color: opts.color });
+      y -= opts.size + 6;
     }
+    return true;
+  };
+
+  for (const block of blocks) {
+    if (y < 80) break;
+    draw(block.heading.toUpperCase(), { size: 11, font: fontBold, color: rgb(0.33, 0.33, 0.36) });
+    y -= 2;
+    for (const line of block.lines) {
+      if (!draw(line.text, {
+        size: 12, font: line.omg ? fontBold : font,
+        color: line.omg ? rgb(0.75, 0.22, 0.18) : rgb(0.13, 0.13, 0.16),
+      })) break;
+    }
+    y -= 14;
+  }
+
+  if (footerLines.length) {
     y -= 8;
+    page.drawLine({ start: { x: 60, y }, end: { x: PAGE_W - 60, y }, thickness: 1, color: rgb(0.85, 0.85, 0.87) });
+    y -= 20;
+    for (const line of footerLines) {
+      if (!draw(line, { size: 12, font, color: rgb(0.13, 0.13, 0.16) })) break;
+    }
   }
 }
 
-// spec: { seed, pages: [{heading, footer}], markedPages: [idx], notesEntries: [str] }
+// spec: { seed, pages: [{heading, footer}], markedPages: [idx], notesContent: {blocks, footerLines} }
 // Page order out: content pages, Notes page, then clean backups of markedPages.
 export async function buildDemoPdf(spec) {
   const doc = await PDFDocument.create();
@@ -117,7 +148,7 @@ export async function buildDemoPdf(spec) {
 
   if (!spec.skipNotesPage) {
     const notes = doc.addPage([PAGE_W, PAGE_H]);
-    drawNotesEntries(notes, fonts.helv, fonts.helvBold, spec.notesEntries || []);
+    drawNotesEntries(notes, fonts.helv, fonts.helvBold, spec.notesContent || { blocks: [], footerLines: [] });
   }
 
   for (const i of marked) {

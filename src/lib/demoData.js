@@ -5,6 +5,7 @@
 // first open (demoPdf.js) and cached.
 import { serializeProps } from './metadata.js';
 import { buildFileName } from './naming.js';
+import { buildNotesContent } from './notesPage.js';
 
 let idCounter = 0;
 const nid = () => `demo-${++idCounter}`;
@@ -47,10 +48,7 @@ function filedFile({ parentId, number, box, folderNum, pages, tags, comments, om
         footer: `${collection} — Box ${box}, Folder ${folderNum} — p.${i + 1}`,
       })),
       markedPages: marked || [],
-      notesEntries: [
-        ...(comments || []).map((c) => `${c.user || 'Hannah'} — ${(c.ts || '').slice(0, 10)} — p.${c.page + 1} — “${c.text}”`),
-        ...(omgPages || []).map((p) => `Hannah — 2026-06-14 — OMG on page ${p + 1}`),
-      ],
+      notesContent: buildNotesContent(parsed),
     },
   };
 }
@@ -71,7 +69,6 @@ function unfiledFile({ parentId, name, capturedAt, seed, heading }) {
       seed,
       pages: [{ heading, footer: name }],
       markedPages: [],
-      notesEntries: [],
       skipNotesPage: true, // batch-uploader files have no notes page yet
     },
   };

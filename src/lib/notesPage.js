@@ -1,30 +1,40 @@
-// The human-readable notes page: attributed comments/tags/OMG flags rendered
-// into the PDF itself, so anyone flipping through a printed or exported copy
-// sees who flagged what without opening this tool. Rebuilt from the metadata
-// on every save; sits after the content pages, before any backup pages.
+// The human-readable notes page. Structure matches the mobile app's own
+// convention exactly (ConfirmationScreen.js buildPDF): a per-page block for
+// any photographed page that has a comment or an OMG flag ("Page N" heading,
+// then a Comments line and/or an OMG line for that page), followed by a
+// document-level footer of Tags / Box / Folder. The one real difference —
+// this tool is multi-user, the app isn't — is that lines carry who wrote
+// them, since Hannah's and Justina's comments/tags/OMG flags need to stay
+// distinguishable on the printed page, not just in the tool.
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { drawNotesEntries } from './demoPdf.js';
 
-function day(ts) {
-  return (ts || '').slice(0, 10) || 'undated';
-}
+export function buildNotesContent(parsed) {
+  const blocks = [];
+  for (let i = 0; i < parsed.pageCount; i++) {
+    const lines = [];
+    for (const c of parsed.comments.filter((c) => (c.page || 0) === i)) {
+      lines.push({ text: `Comments: ${c.user ? `${c.user} — ` : ''}“${c.text}”`, omg: false });
+    }
+    if (parsed.omgPages.includes(i)) {
+      const who = parsed.omgLog.filter((e) => (e.page || 0) === i).map((e) => e.user).filter(Boolean);
+      lines.push({ text: `OMG${who.length ? ` — ${who.join(', ')}` : ''}`, omg: true });
+    }
+    if (lines.length) blocks.push({ heading: `Page ${i + 1}`, lines });
+  }
 
-export function notesEntries(parsed) {
-  const entries = [];
-  for (const e of parsed.omgLog) {
-    entries.push(`${e.user || 'Unknown'} — ${day(e.ts)} — OMG on page ${(e.page || 0) + 1}`);
+  const footerLines = [];
+  if (parsed.tags.length) {
+    const tagText = parsed.tags.map((tag) => {
+      const who = parsed.tagLog.find((e) => e.tag === tag)?.user;
+      return who ? `${tag} (${who})` : tag;
+    }).join(', ');
+    footerLines.push(`Tags: ${tagText}`);
   }
-  for (const c of parsed.comments) {
-    entries.push(`${c.user || 'Unknown'} — ${day(c.ts)} — p.${(c.page || 0) + 1} — “${c.text}”`);
-  }
-  for (const t of parsed.tagLog) {
-    entries.push(`${t.user || 'Unknown'} — ${day(t.ts)} — tag “${t.tag}”`);
-  }
-  // Tags that predate attribution (mobile-app writes) still deserve a line.
-  const logged = new Set(parsed.tagLog.map((t) => t.tag));
-  const untracked = parsed.tags.filter((t) => !logged.has(t));
-  if (untracked.length) entries.push(`Tags: ${untracked.join(', ')}`);
-  return entries;
+  if (parsed.box) footerLines.push(`Box: ${parsed.box}`);
+  if (parsed.folder) footerLines.push(`Folder: ${parsed.folder}`);
+
+  return { blocks, footerLines };
 }
 
 export async function rebuildNotesPage(bytes, parsed) {
@@ -39,6 +49,6 @@ export async function rebuildNotesPage(bytes, parsed) {
     idx = parsed.pageCount; // insert right after the content pages
   }
   const page = doc.insertPage(Math.min(idx, doc.getPageCount()), [612, 792]);
-  drawNotesEntries(page, helv, helvBold, notesEntries(parsed));
+  drawNotesEntries(page, helv, helvBold, buildNotesContent(parsed));
   return { bytes: await doc.save(), notesPageIndex: idx };
 }
