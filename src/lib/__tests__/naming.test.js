@@ -19,9 +19,7 @@ describe('buildFileName', () => {
   });
 
   it('skips missing fields entirely', () => {
-    expect(buildFileName({ collection: 'Good Poems', number: 1 })).toBe(
-      'Good Poems - 000001.pdf',
-    );
+    expect(buildFileName({ collection: 'Good Poems', number: 1 })).toBe('Good Poems - 000001.pdf');
     expect(buildFileName({ number: 12 })).toBe('000012.pdf');
   });
 

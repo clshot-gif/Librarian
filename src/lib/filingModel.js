@@ -183,9 +183,7 @@ export function buildModel(corpusNodes, scopeIds) {
     let parentId = null;
     let bucket = false;
     if (p.collection) {
-      const arch = p.archiveName
-        ? ensureArchive(state, p.archiveName)
-        : noArchiveNode(state);
+      const arch = p.archiveName ? ensureArchive(state, p.archiveName) : noArchiveNode(state);
       const coll = ensureChild(state, arch.id, 'collection', p.collection);
       if (p.box) {
         const box = ensureChild(state, coll.id, 'box', p.box);

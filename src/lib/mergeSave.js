@@ -59,7 +59,8 @@ export async function buildDocumentPdf(backend, nodes, refs, title) {
   for (const ref of refs) {
     const { parsed } = await getSource(ref.fileId);
     if (ref.pageIndex === null || ref.pageIndex === undefined) {
-      for (let i = 0; i < parsed.pageCount; i++) pageRefs.push({ fileId: ref.fileId, pageIndex: i });
+      for (let i = 0; i < parsed.pageCount; i++)
+        pageRefs.push({ fileId: ref.fileId, pageIndex: i });
     } else {
       pageRefs.push(ref);
     }

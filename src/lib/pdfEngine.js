@@ -49,10 +49,14 @@ export function renderThumbnail(fileId, getBytes, width = 150, pageIndex = 0) {
   const key = `${fileId}#${pageIndex}`;
   if (thumbCache.has(key)) return thumbCache.get(key);
   const job = thumbQueue.then(async () => {
+    console.debug('[thumb] start', key);
     const bytes = await getBytes();
+    console.debug('[thumb] got bytes', key, bytes.length);
     const doc = await openPdf(bytes);
+    console.debug('[thumb] opened', key);
     const page = Math.min(pageIndex, doc.numPages - 1);
     const { canvas } = await renderPageToBitmap(doc, page, width);
+    console.debug('[thumb] rendered', key);
     const url = canvas.toDataURL('image/jpeg', 0.7);
     doc.destroy();
     return url;

@@ -1,34 +1,45 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { renderThumbnail } from '../lib/pdfEngine.js';
 import { displayName } from '../lib/naming.js';
-import { playMergeDing, playNope } from '../lib/sound.js';
+import { playMergeDing, playNope, playExplode, playLevelWin, playGrandWin } from '../lib/sound.js';
 import { saveFiling } from '../lib/mergeSave.js';
+import {
+  KINDS,
+  LEVEL,
+  KIND_LABEL,
+  addNode,
+  buildModel,
+  applyFindingAid,
+  dropOperation,
+  applyDrop,
+  mergeSelection,
+  explodeNode,
+  gatherBack,
+  removeContainer,
+  ancestry,
+  childrenOf,
+  computeCompleteness,
+  suggestTargets,
+  buildSavePlan,
+} from '../lib/filingModel.js';
+import { parseFindingAid } from '../lib/findingAid.js';
+import demoSeed from '../lib/findingAidSeed.json';
 
-// Filing Mode: the iOS-folders-style merge game. Everything here is a LOCAL
-// working arrangement — cards merge, stack and nest freely, with undo —
-// and nothing touches Drive until the explicit Save step (mergeSave.js).
+// Filing Mode, redesigned: six columns — Raw page → File → Folder → Box →
+// Collection → Archive — where dropping a card on a level resolves that
+// level's metadata in the same motion. Everything is a LOCAL working
+// arrangement with undo; nothing touches Drive until the explicit Save
+// (mergeSave.js). The data model lives in lib/filingModel.js; this file is
+// rendering, drag mechanics, and feedback (sound + animation).
 
-const LEVEL = { file: 0, doc: 1, folder: 2, box: 3 };
+const KIND_ICON = { folder: '📂', box: '📦', collection: '🗃', archive: '🏛' };
+const clone = (m) => JSON.parse(JSON.stringify(m));
 
-// What happens if `dragged` lands on `target`? null = invalid.
-function mergeType(target, dragged) {
-  const t = LEVEL[target.kind];
-  const d = LEVEL[dragged.kind];
-  if (t === 0 && d === 0) return 'newDoc';
-  if (t === 1 && d === 0) return 'addPage';
-  if (t === 0 && d === 1) return 'addPageReverse';
-  if (t === 1 && d === 1) return 'newFolder';
-  if (t === 2 && d <= 1) return 'addToFolder';
-  if (t === 2 && d === 2) return 'newBox';
-  if (t === 3 && d === 2) return 'addToBox';
-  return null;
-}
-
-function Thumb({ fileId, backend, className }) {
+function Thumb({ fileId, pageIndex = 0, backend, className }) {
   const [url, setUrl] = useState(null);
   useEffect(() => {
     let on = true;
-    renderThumbnail(fileId, () => backend.getPdfBytes(fileId))
+    renderThumbnail(fileId, () => backend.getPdfBytes(fileId), 150, pageIndex)
       .then((u) => {
         if (on) setUrl(u);
       })
@@ -36,7 +47,7 @@ function Thumb({ fileId, backend, className }) {
     return () => {
       on = false;
     };
-  }, [fileId, backend]);
+  }, [fileId, pageIndex, backend]);
   return url ? (
     <img src={url} className={className} alt="" draggable={false} />
   ) : (
@@ -44,92 +55,136 @@ function Thumb({ fileId, backend, className }) {
   );
 }
 
-function countStats(items) {
-  let files = 0,
-    docs = 0,
-    folders = 0,
-    boxes = 0;
-  for (const i of items) {
-    if (i.kind === 'file') files++;
-    else if (i.kind === 'doc') docs++;
-    else if (i.kind === 'folder') folders++;
-    else if (i.kind === 'box') {
-      boxes++;
-      folders += i.folders.length;
-    }
-  }
-  return { files, docs, folders, boxes };
+// The compact "where does this sit" row under a card: resolved levels show
+// their value, deliberately-skipped ones are struck through, unresolved ones
+// glow as ?, unplaced ones are dim dots. This is the metadata the drop
+// resolved, made visible.
+function Chips({ model, id }) {
+  const chain = ancestry(model, id);
+  if (!chain.length) return null;
+  return (
+    <div className="chips">
+      {[...chain].reverse().map((seg, i) => {
+        if (seg.state === 'resolved') {
+          return (
+            <span key={i} className={`chip ${seg.unnamed ? 'chip-q' : ''}`} title={seg.kind}>
+              {seg.unnamed ? '(name?)' : seg.name}
+            </span>
+          );
+        }
+        if (seg.state === 'unresolved' || seg.state === 'unresolved-parent') {
+          return (
+            <span key={i} className="chip chip-q" title={`${KIND_LABEL[seg.kind]} unresolved`}>
+              ?
+            </span>
+          );
+        }
+        if (seg.state === 'skipped') {
+          return (
+            <span
+              key={i}
+              className="chip chip-skip"
+              title={`${KIND_LABEL[seg.kind]} skipped on purpose`}
+            >
+              {KIND_LABEL[seg.kind]}
+            </span>
+          );
+        }
+        return (
+          <span key={i} className="chip chip-dim" title={`${KIND_LABEL[seg.kind]} not placed yet`}>
+            ·
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
-export default function FilingMode({ backend, nodes, version, scopeId, roots, onReload }) {
-  const [items, setItems] = useState([]);
+export default function FilingMode({ backend, nodes, scopeId, roots, onReload }) {
+  const [model, setModel] = useState(null);
+  const [allScopes, setAllScopes] = useState(true);
   const [selected, setSelected] = useState(() => new Set());
   const [drag, setDrag] = useState(null); // {itemId, x, y}
-  const [flying, setFlying] = useState(null); // ghost animating to a point
-  const [dropId, setDropId] = useState(null);
-  const [invalidHoverId, setInvalidHoverId] = useState(null);
+  const [flying, setFlying] = useState(null);
+  const [dropTarget, setDropTarget] = useState(null); // drop descriptor key
+  const [invalidHover, setInvalidHover] = useState(null);
+  const [suggested, setSuggested] = useState(() => new Set());
   const [popId, setPopId] = useState(null);
   const [shakeId, setShakeId] = useState(null);
-  const [titleEditId, setTitleEditId] = useState(null);
+  const [spillIds, setSpillIds] = useState(() => new Set());
+  const [winIds, setWinIds] = useState(() => new Set());
+  const [grandWin, setGrandWin] = useState(false);
+  const [focusNameId, setFocusNameId] = useState(null);
+  const [editingName, setEditingName] = useState(null);
+  const [aidInfo, setAidInfo] = useState(null);
   const [saveOpen, setSaveOpen] = useState(false);
-  const [progress, setProgress] = useState(null); // null | string[]
-  const [destCollection, setDestCollection] = useState('');
-  const [destArchive, setDestArchive] = useState('');
+  const [progress, setProgress] = useState(null);
 
-  const counterRef = useRef(1);
   const dragRef = useRef(null);
   const undoStack = useRef([]);
+  const prevCompRef = useRef(null);
+  const aidRef = useRef(null);
+  const editUndoPushed = useRef(false);
+  const fileInputRef = useRef(null);
 
+  const getParsed = useCallback((fid) => nodes.get(fid)?.parsed, [nodes]);
   const scopeNode = scopeId ? nodes.get(scopeId) : null;
 
-  // Build the card table from the chosen folder's files (all descendants,
-  // flattened — filing is about loose scans wherever they sit in the tree).
+  // ── Build / rebuild the workspace ────────────────────────────────────────
   const rebuild = useCallback(() => {
-    const files = [];
-    const walk = (id, path) => {
-      const n = nodes.get(id);
-      if (!n) return;
-      if (!n.isFolder) {
-        files.push({ node: n, path });
-        return;
+    const scopes = allScopes ? roots.map((r) => r.id) : scopeId ? [scopeId] : [];
+    const state = buildModel(nodes, scopes);
+    // Demo mode ships with the real FWHC finding-aid seed pre-loaded, the
+    // same way the rest of the app demos everything against sample data.
+    if (!aidRef.current && backend.kind === 'demo') {
+      try {
+        aidRef.current = parseFindingAid(demoSeed);
+      } catch {
+        aidRef.current = null;
       }
-      const sub = id === scopeId ? '' : path ? `${path} / ${n.name}` : n.name;
-      n.children.forEach((c) => walk(c, sub));
-    };
-    if (scopeId && nodes.get(scopeId)) walk(scopeId, '');
-    files.sort((a, b) =>
-      (a.node.parsed?.capturedAt || '').localeCompare(b.node.parsed?.capturedAt || ''),
-    );
-    setItems(
-      files.map((f) => ({
-        kind: 'file',
-        id: `w${counterRef.current++}`,
-        fileId: f.node.id,
-        name: displayName(f.node.name, f.node.parsed),
-        capturedAt: f.node.parsed?.capturedAt || '',
-        srcPath: f.path,
-      })),
-    );
+    }
+    if (aidRef.current) {
+      applyFindingAid(state, aidRef.current);
+      setAidInfo(aidRef.current);
+    }
+    setModel(state);
     setSelected(new Set());
     undoStack.current = [];
-  }, [nodes, scopeId]);
+    prevCompRef.current = null; // no win fanfare for arrangements loaded complete
+  }, [nodes, scopeId, allScopes, roots, backend]);
 
-  // Rebuild when the scope changes or the corpus is reloaded (new Map
-  // identity). In-session version bumps do NOT rebuild — that would wipe
-  // an arrangement in progress.
   useEffect(() => {
     rebuild();
   }, [rebuild]);
 
-  const pushUndo = () => {
-    undoStack.current.push(JSON.stringify(items));
+  // ── Mutation helpers (undo = JSON snapshots, like the rest of the app) ──
+  const pushUndo = useCallback(() => {
+    if (!model) return;
+    undoStack.current.push(JSON.stringify(model));
     if (undoStack.current.length > 100) undoStack.current.shift();
+  }, [model]);
+
+  const mutate = (fn) => {
+    pushUndo();
+    setModel((prev) => {
+      const next = clone(prev);
+      fn(next);
+      return next;
+    });
   };
+  // For per-keystroke edits: the undo snapshot is pushed once when the
+  // input gains focus, not per character.
+  const softMutate = (fn) =>
+    setModel((prev) => {
+      const next = clone(prev);
+      fn(next);
+      return next;
+    });
 
   const undo = useCallback(() => {
     const prev = undoStack.current.pop();
     if (prev) {
-      setItems(JSON.parse(prev));
+      setModel(JSON.parse(prev));
       setSelected(new Set());
     }
   }, []);
@@ -145,138 +200,133 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, on
     return () => window.removeEventListener('keydown', onKey);
   }, [undo]);
 
-  function nextLabel(kind) {
-    let max = 0;
-    const scan = (arr) =>
-      arr.forEach((i) => {
-        if (i.kind === kind) {
-          const n = parseInt(i.label, 10);
-          if (!Number.isNaN(n)) max = Math.max(max, n);
+  // ── Completeness → win feedback ──────────────────────────────────────────
+  const completeness = useMemo(() => (model ? computeCompleteness(model) : null), [model]);
+
+  useEffect(() => {
+    if (!model || !completeness) return;
+    if (editingName) return; // judge names on blur, not per keystroke
+    if (!prevCompRef.current) {
+      prevCompRef.current = completeness;
+      return;
+    }
+    const prev = prevCompRef.current;
+    const newly = [...completeness.complete].filter(
+      (id) => !prev.complete.has(id) && model.nodes[id],
+    );
+    if (newly.length) {
+      setWinIds(new Set(newly));
+      const maxLevel = Math.max(...newly.map((id) => LEVEL[model.nodes[id].kind]));
+      playLevelWin(maxLevel);
+      setTimeout(() => setWinIds(new Set()), 1500);
+    }
+    if (completeness.global && !prev.global) {
+      setGrandWin(true);
+      playGrandWin();
+    }
+    prevCompRef.current = completeness;
+  }, [model, completeness, editingName]);
+
+  // ── Column contents ──────────────────────────────────────────────────────
+  const columns = useMemo(() => {
+    if (!model) return null;
+    const cols = { raw: [], file: [], folder: [], box: [], collection: [], archive: [] };
+    const all = Object.values(model.nodes);
+    const spillCounts = new Map();
+    for (const n of all) {
+      if (n.parentId === null && n.origin) {
+        spillCounts.set(n.origin, (spillCounts.get(n.origin) || 0) + 1);
+      }
+    }
+    for (const n of all) {
+      if (n.kind === 'raw') {
+        if (n.parentId === null) cols.raw.push({ key: n.id, type: 'card', node: n });
+      } else if (n.kind === 'file') {
+        const pages = childrenOf(model, n.id);
+        const shell = n.materialized && pages.length === 0;
+        const partial = spillCounts.has(n.id);
+        // Filed files live inside their folder's card; file-column cards are
+        // the actionable ones — loose, mid-explode, or in a bucket (bucket
+        // members render inside the bucket card instead).
+        if (n.parentId === null || shell || partial) {
+          if (!n.bucket) cols.file.push({ key: n.id, type: 'card', node: n, shell, partial });
         }
-        if (i.kind === 'box') scan(i.folders);
-        if (i.kind === 'folder') scan(i.items);
+      } else {
+        // Containers always show — they're the drop targets.
+        cols[n.kind].push({
+          key: n.id,
+          type: 'card',
+          node: n,
+          spills: spillCounts.get(n.id) || 0,
+        });
+      }
+    }
+    // `?` buckets render one column below their parent, scoped to it.
+    for (const n of all) {
+      if (LEVEL[n.kind] < 2) continue;
+      const members = childrenOf(model, n.id, { buckets: true });
+      if (members.length) {
+        cols[KINDS[LEVEL[n.kind] - 1]].push({
+          key: `bucket-${n.id}`,
+          type: 'bucket',
+          parent: n,
+          members,
+        });
+      }
+    }
+    const pathKey = (id) =>
+      ancestry(model, id)
+        .map((s) => s.name || s.state)
+        .reverse()
+        .join('/');
+    for (const kind of KINDS) {
+      cols[kind].sort((a, b) => {
+        const ka = a.type === 'bucket' ? 1 : a.node.parentId === null ? 0 : 2;
+        const kb = b.type === 'bucket' ? 1 : b.node.parentId === null ? 0 : 2;
+        if (ka !== kb) return ka - kb;
+        if (a.type === 'bucket' || b.type === 'bucket') return 0;
+        const pa = pathKey(a.node.id) + (a.node.name || '');
+        const pb = pathKey(b.node.id) + (b.node.name || '');
+        return pa.localeCompare(pb, undefined, { numeric: true });
       });
-    scan(items);
-    return String(max + 1);
-  }
-
-  function applyMerge(targetId, draggedId) {
-    const target = items.find((i) => i.id === targetId);
-    const dragged = items.find((i) => i.id === draggedId);
-    const type = mergeType(target, dragged);
-    if (!type) return;
-    pushUndo();
-    const nid = () => `w${counterRef.current++}`;
-    const rest = items.filter((i) => i.id !== draggedId);
-    let replacement = null;
-    let editTitle = null;
-
-    switch (type) {
-      case 'newDoc':
-        replacement = {
-          kind: 'doc',
-          id: nid(),
-          title: '',
-          pageFileIds: [target.fileId, dragged.fileId],
-        };
-        editTitle = replacement.id;
-        break;
-      case 'addPage':
-        replacement = { ...target, pageFileIds: [...target.pageFileIds, dragged.fileId] };
-        break;
-      case 'addPageReverse':
-        replacement = {
-          kind: 'doc',
-          id: nid(),
-          title: dragged.title,
-          pageFileIds: [target.fileId, ...dragged.pageFileIds],
-        };
-        break;
-      case 'newFolder':
-        replacement = {
-          kind: 'folder',
-          id: nid(),
-          label: nextLabel('folder'),
-          items: [target, dragged],
-        };
-        break;
-      case 'addToFolder':
-        replacement = { ...target, items: [...target.items, dragged] };
-        break;
-      case 'newBox':
-        replacement = {
-          kind: 'box',
-          id: nid(),
-          label: nextLabel('box'),
-          folders: [target, dragged],
-        };
-        break;
-      case 'addToBox':
-        replacement = { ...target, folders: [...target.folders, dragged] };
-        break;
-      default:
-        return;
     }
-    setItems(rest.map((i) => (i.id === targetId ? replacement : i)));
-    setSelected(new Set());
-    playMergeDing();
-    setPopId(replacement.id);
-    setTimeout(() => setPopId(null), 400);
-    if (editTitle) setTitleEditId(editTitle);
+    return cols;
+  }, [model]);
+
+  // ── Drag mechanics (custom pointer drag, same approach as before) ───────
+  function dragIdsFor(itemId) {
+    return selected.has(itemId) && selected.size > 1 ? [...selected] : [itemId];
   }
 
-  // Multi-select merge: files/docs combine into one document ordered by
-  // captured_at (the handoff's rule for select-several-then-merge);
-  // folders combine into a box.
-  const selectedItems = items.filter((i) => selected.has(i.id));
-  const canMergeSelection =
-    selected.size >= 2 &&
-    (selectedItems.every((i) => i.kind === 'file' || i.kind === 'doc') ||
-      selectedItems.every((i) => i.kind === 'folder'));
-
-  function itemCapturedAt(item) {
-    if (item.kind === 'file') return item.capturedAt;
-    const first = item.pageFileIds[0];
-    return nodes.get(first)?.parsed?.capturedAt || '';
-  }
-
-  function mergeSelection() {
-    if (!canMergeSelection) return;
-    pushUndo();
-    const nid = `w${counterRef.current++}`;
-    const rest = items.filter((i) => !selected.has(i.id));
-    const firstIdx = items.findIndex((i) => selected.has(i.id));
-    let merged;
-    if (selectedItems[0].kind === 'folder') {
-      merged = { kind: 'box', id: nid, label: nextLabel('box'), folders: selectedItems };
-    } else {
-      const ordered = [...selectedItems].sort((a, b) =>
-        itemCapturedAt(a).localeCompare(itemCapturedAt(b)),
-      );
-      merged = {
-        kind: 'doc',
-        id: nid,
-        title: '',
-        pageFileIds: ordered.flatMap((i) => (i.kind === 'file' ? [i.fileId] : i.pageFileIds)),
-      };
-      setTitleEditId(nid);
+  function targetFromElement(el) {
+    const dropEl = el?.closest('[data-drop]');
+    if (!dropEl) return null;
+    try {
+      return JSON.parse(dropEl.getAttribute('data-drop'));
+    } catch {
+      return null;
     }
-    rest.splice(firstIdx, 0, merged);
-    setItems(rest);
-    setSelected(new Set());
-    playMergeDing();
-    setPopId(nid);
-    setTimeout(() => setPopId(null), 400);
   }
 
-  // ── Pointer-based drag (custom, not HTML5 DnD — we need full control of
-  //    the ghost, the target pulse, and the fly-in animation) ──────────────
-  function onCardPointerDown(e, item) {
+  function targetKey(t) {
+    if (!t) return null;
+    return t.type === 'node'
+      ? t.id
+      : t.type === 'bucket'
+        ? `bucket-${t.parentId}`
+        : `new-${t.kind}`;
+  }
+
+  function anyValid(ids, target) {
+    return ids.some((id) => dropOperation(model, id, target));
+  }
+
+  function onCardPointerDown(e, node) {
     if (e.button !== 0) return;
     if (e.target.closest('input, button, textarea')) return;
     const rect = e.currentTarget.getBoundingClientRect();
     dragRef.current = {
-      itemId: item.id,
+      itemId: node.id,
       startX: e.clientX,
       startY: e.clientY,
       originRect: rect,
@@ -287,25 +337,19 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, on
       if (!d) return;
       if (!d.started && Math.hypot(ev.clientX - d.startX, ev.clientY - d.startY) > 7) {
         d.started = true;
+        setSuggested(suggestTargets(model, d.itemId));
       }
       if (d.started) {
         setDrag({ itemId: d.itemId, x: ev.clientX, y: ev.clientY });
-        const el = document.elementFromPoint(ev.clientX, ev.clientY);
-        const cardEl = el?.closest('[data-card-id]');
-        const overId = cardEl?.getAttribute('data-card-id');
-        if (overId && overId !== d.itemId) {
-          const target = items.find((i) => i.id === overId);
-          const dragged = items.find((i) => i.id === d.itemId);
-          if (target && dragged && mergeType(target, dragged)) {
-            setDropId(overId);
-            setInvalidHoverId(null);
-          } else {
-            setDropId(null);
-            setInvalidHoverId(overId);
-          }
+        const target = targetFromElement(document.elementFromPoint(ev.clientX, ev.clientY));
+        const ids = dragIdsFor(d.itemId);
+        const selfDrop = target?.type === 'node' && ids.includes(target.id);
+        if (target && !selfDrop && anyValid(ids, target)) {
+          setDropTarget(targetKey(target));
+          setInvalidHover(null);
         } else {
-          setDropId(null);
-          setInvalidHoverId(null);
+          setDropTarget(null);
+          setInvalidHover(target && !selfDrop ? targetKey(target) : null);
         }
       }
     };
@@ -314,28 +358,26 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, on
       window.removeEventListener('pointerup', onUp);
       const d = dragRef.current;
       dragRef.current = null;
+      setSuggested(new Set());
       if (!d) return;
       if (!d.started) {
-        // Plain click: toggle selection.
         setSelected((s) => {
           const next = new Set(s);
-          if (next.has(item.id)) next.delete(item.id);
-          else next.add(item.id);
+          if (next.has(node.id)) next.delete(node.id);
+          else next.add(node.id);
           return next;
         });
         setDrag(null);
         return;
       }
       const el = document.elementFromPoint(ev.clientX, ev.clientY);
-      const overId = el?.closest('[data-card-id]')?.getAttribute('data-card-id');
-      const target = overId && overId !== d.itemId ? items.find((i) => i.id === overId) : null;
-      const dragged = items.find((i) => i.id === d.itemId);
-      const valid = target && dragged && mergeType(target, dragged);
+      const target = targetFromElement(el);
+      const ids = dragIdsFor(d.itemId);
+      const selfDrop = target?.type === 'node' && ids.includes(target.id);
+      const valid = target && !selfDrop && anyValid(ids, target);
 
       if (valid) {
-        // The iOS-folder moment: ghost dives into the target, then the
-        // merged card pops and the chime plays (inside applyMerge).
-        const rect = el.closest('[data-card-id]').getBoundingClientRect();
+        const rect = el.closest('[data-drop]').getBoundingClientRect();
         setFlying({
           itemId: d.itemId,
           x: rect.left + rect.width / 2,
@@ -346,17 +388,16 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, on
         setTimeout(() => {
           setFlying(null);
           setDrag(null);
-          setDropId(null);
-          setInvalidHoverId(null);
-          applyMerge(overId, d.itemId);
+          setDropTarget(null);
+          setInvalidHover(null);
+          performDrop(ids, target);
         }, 170);
       } else {
-        if (target) {
+        if (target && !selfDrop) {
           playNope();
-          setShakeId(overId);
+          setShakeId(targetKey(target));
           setTimeout(() => setShakeId(null), 350);
         }
-        // Fly back home.
         setFlying({
           itemId: d.itemId,
           x: d.originRect.left + d.originRect.width / 2,
@@ -367,8 +408,8 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, on
         setTimeout(() => {
           setFlying(null);
           setDrag(null);
-          setDropId(null);
-          setInvalidHoverId(null);
+          setDropTarget(null);
+          setInvalidHover(null);
         }, 180);
       }
     };
@@ -376,178 +417,165 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, on
     window.addEventListener('pointerup', onUp);
   }
 
-  function setDocTitle(id, title) {
-    setItems((arr) => arr.map((i) => (i.id === id ? { ...i, title } : i)));
+  // Computed synchronously from the current model (not in a setState
+  // updater — updaters must stay pure, and we need the created ids here).
+  function performDrop(ids, target) {
+    pushUndo();
+    const next = clone(model);
+    let popKey = targetKey(target);
+    let focus = null;
+    let effectiveTarget = target;
+    for (const id of ids) {
+      const res = applyDrop(next, id, effectiveTarget, getParsed);
+      if (res?.focusId) {
+        focus = res.focusId;
+        // Dropping a multi-selection on a "new container" target makes ONE
+        // container: the rest of the selection joins it.
+        if (effectiveTarget.type === 'new' && next.nodes[res.focusId]) {
+          effectiveTarget = { type: 'node', id: res.focusId };
+          popKey = res.focusId;
+        }
+        if (res.op === 'newFile') popKey = res.focusId;
+      }
+    }
+    setModel(next);
+    setSelected(new Set());
+    playMergeDing();
+    setPopId(popKey);
+    setTimeout(() => setPopId(null), 400);
+    if (focus) setFocusNameId(focus);
   }
 
-  function setLabel(id, label) {
-    setItems((arr) => arr.map((i) => (i.id === id ? { ...i, label } : i)));
+  // ── Explode / gather ─────────────────────────────────────────────────────
+  function doExplode(id) {
+    pushUndo();
+    const next = clone(model);
+    const spilled = explodeNode(next, id, getParsed);
+    setModel(next);
+    playExplode();
+    setSpillIds(new Set(spilled));
+    setTimeout(() => setSpillIds(new Set()), 700);
+    setSelected(new Set());
   }
 
-  function firstFileId(item) {
-    if (item.kind === 'file') return item.fileId;
-    if (item.kind === 'doc') return item.pageFileIds[0];
-    if (item.kind === 'folder') return item.items.length ? firstFileId(item.items[0]) : null;
-    return item.folders.length ? firstFileId(item.folders[0]) : null;
+  function doGather(id) {
+    mutate((m) => gatherBack(m, id));
+    playMergeDing();
+    setPopId(id);
+    setTimeout(() => setPopId(null), 400);
   }
 
-  function renderCard(item) {
-    const classes = [
-      'card',
-      item.kind,
-      selected.has(item.id) ? 'selected' : '',
-      dropId === item.id ? 'drop-target' : '',
-      drag?.itemId === item.id ? 'dragging-src' : '',
-      popId === item.id ? 'merge-pop' : '',
-      shakeId === item.id || (invalidHoverId === item.id && drag) ? 'shake' : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
+  // ── Selection merge (kept gesture: several pages/files → one file) ──────
+  const selectedNodes = model ? [...selected].map((id) => model.nodes[id]).filter(Boolean) : [];
+  const canMergeSelection =
+    selectedNodes.length >= 2 && selectedNodes.every((n) => n.kind === 'raw' || n.kind === 'file');
 
+  function doMergeSelection() {
+    if (!canMergeSelection) return;
+    pushUndo();
+    const next = clone(model);
+    const created = mergeSelection(next, [...selected], getParsed);
+    setModel(next);
+    setSelected(new Set());
+    playMergeDing();
+    if (created) {
+      setPopId(created);
+      setFocusNameId(created);
+      setTimeout(() => setPopId(null), 400);
+    }
+  }
+
+  // ── Finding aid loading (any mode) ───────────────────────────────────────
+  function onAidFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    file.text().then((text) => {
+      try {
+        const aid = parseFindingAid(JSON.parse(text));
+        aidRef.current = aid;
+        setAidInfo(aid);
+        mutate((m) => applyFindingAid(m, aid));
+      } catch (err) {
+        alert(`Couldn't read that finding aid: ${err.message}`);
+      }
+    });
+  }
+
+  // ── Name / title editing ─────────────────────────────────────────────────
+  function nameInput(node, placeholder) {
     return (
-      <div
-        key={item.id}
-        className={classes}
-        data-card-id={item.id}
-        onPointerDown={(e) => onCardPointerDown(e, item)}
-      >
-        <span className="select-dot" />
-        {item.kind === 'file' && (
-          <>
-            <Thumb fileId={item.fileId} backend={backend} className="thumb" />
-            <div className="card-name">{item.name}</div>
-            {item.srcPath && (
-              <div className="src-chip" title={item.srcPath}>
-                {item.srcPath}
-              </div>
-            )}
-          </>
-        )}
-        {item.kind === 'doc' && (
-          <>
-            <span className="pages-badge">{item.pageFileIds.length} pp</span>
-            <Thumb fileId={item.pageFileIds[0]} backend={backend} className="thumb" />
-            <input
-              className="title-input"
-              placeholder="Title (optional)…"
-              value={item.title}
-              // focus({preventScroll}) instead of autoFocus: the browser's
-              // default focus-scroll can yank the grid and hide other cards.
-              ref={(el) => {
-                if (el && titleEditId === item.id) {
-                  el.focus({ preventScroll: true });
-                  setTitleEditId(null);
-                }
-              }}
-              onChange={(e) => setDocTitle(item.id, e.target.value)}
-            />
-          </>
-        )}
-        {item.kind === 'folder' && (
-          <>
-            <div className="card-label">
-              📂 Folder
-              <input value={item.label} onChange={(e) => setLabel(item.id, e.target.value)} />
-            </div>
-            <div className="mini-grid">
-              {item.items.slice(0, 4).map((sub) =>
-                firstFileId(sub) ? (
-                  <Thumb
-                    key={sub.id}
-                    fileId={firstFileId(sub)}
-                    backend={backend}
-                    className="mini-thumb"
-                  />
-                ) : (
-                  <div key={sub.id} className="mini-more">
-                    ·
-                  </div>
-                ),
-              )}
-              {item.items.length > 4 && <div className="mini-more">+{item.items.length - 4}</div>}
-            </div>
-            <div className="contents-note">
-              {item.items.length} document{item.items.length === 1 ? '' : 's'}
-            </div>
-          </>
-        )}
-        {item.kind === 'box' && (
-          <>
-            <div className="card-label">
-              📦 Box
-              <input value={item.label} onChange={(e) => setLabel(item.id, e.target.value)} />
-            </div>
-            <div className="contents-note">
-              {item.folders.map((f) => `Folder ${f.label} (${f.items.length})`).join(' · ')}
-            </div>
-          </>
-        )}
-      </div>
+      <input
+        className="name-input"
+        value={node.kind === 'file' ? node.title : node.name}
+        placeholder={placeholder}
+        ref={(el) => {
+          if (el && focusNameId === node.id) {
+            el.focus({ preventScroll: true });
+            setFocusNameId(null);
+          }
+        }}
+        onFocus={() => {
+          setEditingName(node.id);
+          if (!editUndoPushed.current) {
+            pushUndo();
+            editUndoPushed.current = true;
+          }
+        }}
+        onBlur={() => {
+          setEditingName(null);
+          editUndoPushed.current = false;
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
+        onChange={(e) => {
+          const v = e.target.value;
+          softMutate((m) => {
+            const n = m.nodes[node.id];
+            if (!n) return;
+            if (n.kind === 'file') n.title = v;
+            else n.name = v;
+          });
+        }}
+      />
     );
   }
 
   // ── Save ────────────────────────────────────────────────────────────────
-  const stats = countStats(items);
-  const savable = items.some((i) => i.kind !== 'file');
-
-  const loadedCollections = useMemo(() => {
-    const set = new Set();
-    for (const n of nodes.values()) {
-      if (!n.isFolder && n.parsed?.collection) set.add(n.parsed.collection);
-    }
-    for (const r of roots) {
-      const m = nodes.get(r.id)?.name.match(/^Archive Capture — (.+)$/);
-      if (m) set.add(m[1]);
-    }
-    return [...set];
-    // `version` isn't read above, but `nodes` is a mutated-in-place ref
-    // whose identity never changes — version is the real invalidation
-    // signal when a file's collection changes (matches MetadataPanel.jsx).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, version, roots]);
-
-  function openSave() {
-    // Prefill destination from a loaded collection when there is one.
-    const guess = loadedCollections[0] || '';
-    setDestCollection((c) => c || guess);
-    if (guess && !destArchive) {
-      for (const n of nodes.values()) {
-        if (!n.isFolder && n.parsed?.collection === guess && n.parsed.archiveName) {
-          setDestArchive(n.parsed.archiveName);
-          break;
+  const savePlan = useMemo(() => (model ? buildSavePlan(model) : null), [model]);
+  const saveStats = useMemo(() => {
+    if (!savePlan) return null;
+    let unchanged = 0;
+    let toWrite = 0;
+    for (const unit of savePlan.units) {
+      for (const f of unit.files) {
+        const p = f.pristineFileId ? getParsed(f.pristineFileId) : null;
+        if (
+          p &&
+          p.box === unit.box &&
+          p.folder === unit.folder &&
+          p.collection === unit.collection &&
+          p.archiveName === unit.archiveName &&
+          (p.title || '') === (f.title || '')
+        ) {
+          unchanged++;
+        } else {
+          toWrite++;
         }
       }
     }
-    setSaveOpen(true);
-  }
-
-  const destRoot = useMemo(() => {
-    for (const r of roots) {
-      const n = nodes.get(r.id);
-      if (n && n.name === `Archive Capture — ${destCollection.trim()}`) return n;
-    }
-    return null;
-    // Same invalidation-signal reasoning as loadedCollections above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roots, nodes, destCollection, version]);
+    return { unchanged, toWrite };
+  }, [savePlan, getParsed]);
 
   async function runSave() {
     setProgress([]);
     const log = (msg) => setProgress((p) => [...(p || []), msg]);
     try {
-      const res = await saveFiling({
-        backend,
-        nodes,
-        plan: items,
-        destination: {
-          collection: destCollection.trim(),
-          archiveName: destArchive.trim(),
-          rootFolderId: destRoot?.id || null,
-        },
-        onProgress: log,
-      });
+      const res = await saveFiling({ backend, nodes, roots, plan: savePlan, onProgress: log });
       log(
-        `Filed ${res.filed} document${res.filed === 1 ? '' : 's'} (${res.merged} merged). Refreshing…`,
+        `Filed ${res.filed} document${res.filed === 1 ? '' : 's'} ` +
+          `(${res.merged} assembled, ${res.unchanged} already in place). Refreshing…`,
       );
       await onReload();
     } catch (err) {
@@ -555,63 +583,469 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, on
     }
   }
 
-  if (!scopeNode) {
+  // ── Rendering ────────────────────────────────────────────────────────────
+  if (!model || !columns) {
     return (
       <div className="filing-main">
-        <div className="empty-state">Pick a folder in the explorer to start filing.</div>
+        <div className="empty-state">Loading…</div>
+      </div>
+    );
+  }
+  if (!allScopes && !scopeNode) {
+    return (
+      <div className="filing-main">
+        <div className="empty-state">
+          Pick a folder in the explorer, or switch on “All loaded folders”.
+        </div>
       </div>
     );
   }
 
+  const ghostNode = drag ? model.nodes[drag.itemId] : null;
+  const dragCount = drag ? dragIdsFor(drag.itemId).length : 0;
   const flyingStyle = flying && {
-    left: flying.x - 75,
-    top: flying.y - 40,
+    left: flying.x - 70,
+    top: flying.y - 45,
     transform: `scale(${flying.scale})`,
     opacity: flying.opacity,
   };
-  const dragStyle = drag && !flying && { left: drag.x - 75, top: drag.y - 40 };
-  const ghostItem = drag ? items.find((i) => i.id === drag.itemId) : null;
+  const dragStyle = drag && !flying && { left: drag.x - 70, top: drag.y - 45 };
+
+  const cardStateClasses = (key, extra = '') =>
+    [
+      'card',
+      extra,
+      selected.has(key) ? 'selected' : '',
+      dropTarget === key ? 'drop-target' : '',
+      suggested.has(key) ? 'suggested' : '',
+      drag?.itemId === key ? 'dragging-src' : '',
+      popId === key ? 'merge-pop' : '',
+      shakeId === key || (invalidHover === key && drag) ? 'shake' : '',
+      spillIds.has(key) ? 'spill-in' : '',
+      winIds.has(key) ? 'win-pop' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+  function fileThumbProps(node) {
+    if (node.source) return { fileId: node.source.fileId, pageIndex: 0 };
+    const pages = childrenOf(model, node.id);
+    if (pages.length)
+      return { fileId: pages[0].ref.fileId, pageIndex: pages[0].ref.pageIndex ?? 0 };
+    return null;
+  }
+
+  function renderRawCard(node) {
+    const src = nodes.get(node.ref.fileId);
+    return (
+      <div
+        key={node.id}
+        className={cardStateClasses(node.id, 'raw-card')}
+        data-drop={JSON.stringify({ type: 'node', id: node.id })}
+        onPointerDown={(e) => onCardPointerDown(e, node)}
+      >
+        <span className="select-dot" />
+        {node.meta?.omg && <span className="omg-flag">OMG</span>}
+        <Thumb
+          fileId={node.ref.fileId}
+          pageIndex={node.ref.pageIndex ?? 0}
+          backend={backend}
+          className="thumb"
+        />
+        <div className="card-name">
+          {node.ref.pageIndex === null
+            ? displayName(src?.name || '', getParsed(node.ref.fileId))
+            : `${node.meta?.label || ''} · ${displayName(src?.name || '', getParsed(node.ref.fileId))}`}
+        </div>
+        <div className="raw-badges">
+          {node.meta?.commentCount > 0 && <span className="badge">💬{node.meta.commentCount}</span>}
+          {node.meta?.hasBackup && (
+            <span className="badge" title="has markup + clean backup">
+              ✏️
+            </span>
+          )}
+          {node.origin && model.nodes[node.origin] && (
+            <span className="badge origin-badge" title="spilled from an exploded card">
+              ⟲
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderFileCard({ node, shell, partial }) {
+    const pages = childrenOf(model, node.id);
+    const pageCount = node.source ? node.meta?.pageCount || 1 : pages.length;
+    const thumb = fileThumbProps(node);
+    return (
+      <div
+        key={node.id}
+        className={cardStateClasses(
+          node.id,
+          `file-card ${shell ? 'shell' : ''} ${partial ? 'inprogress' : ''}`,
+        )}
+        data-drop={JSON.stringify({ type: 'node', id: node.id })}
+        onPointerDown={(e) => onCardPointerDown(e, node)}
+      >
+        <span className="select-dot" />
+        <span className="pages-badge">{pageCount} pp</span>
+        {thumb ? (
+          <Thumb {...thumb} backend={backend} className="thumb" />
+        ) : (
+          <div className="thumb shell-thumb">⤓ pages out</div>
+        )}
+        {nameInput(node, 'Title (optional)…')}
+        <Chips model={model} id={node.id} />
+        <div className="card-actions">
+          {pageCount > 1 && !shell && (
+            <button
+              className="mini-btn"
+              title="Explode into pages"
+              onClick={() => doExplode(node.id)}
+            >
+              💥
+            </button>
+          )}
+          {(shell || partial) && (
+            <button
+              className="mini-btn"
+              title="Gather spilled pages back"
+              onClick={() => doGather(node.id)}
+            >
+              ⟲ gather
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function containerSummary(node) {
+    const kids = childrenOf(model, node.id);
+    const bucketKids = childrenOf(model, node.id, { buckets: true });
+    const parts = [];
+    if (node.kind === 'folder') {
+      const files = kids.filter((k) => k.kind === 'file' || k.kind === 'raw');
+      parts.push(`${files.length} file${files.length === 1 ? '' : 's'}`);
+    } else {
+      const byKind = {};
+      for (const k of kids) byKind[k.kind] = (byKind[k.kind] || 0) + 1;
+      for (const [kind, n] of Object.entries(byKind)) {
+        parts.push(`${n} ${KIND_LABEL[kind].toLowerCase()}${n === 1 ? '' : 's'}`);
+      }
+      if (!parts.length) parts.push('empty');
+    }
+    if (bucketKids.length) parts.push(`${bucketKids.length} in ?`);
+    return parts.join(' · ');
+  }
+
+  function renderContainerCard({ node, spills }) {
+    const kids = childrenOf(model, node.id);
+    const complete = completeness?.complete.has(node.id);
+    const inProgress =
+      spills > 0 ||
+      kids.some((k) => k.kind === 'file' && k.materialized && !childrenOf(model, k.id).length);
+    const removable =
+      !node.special && !kids.length && !childrenOf(model, node.id, { buckets: true }).length;
+    const filePreviews = node.kind === 'folder' ? kids.filter((k) => k.kind !== 'folder') : [];
+    return (
+      <div
+        key={node.id}
+        className={cardStateClasses(
+          node.id,
+          `${node.kind} ${node.expected ? 'expected' : ''} ${inProgress ? 'inprogress' : ''} ${
+            node.special ? 'special' : ''
+          }`,
+        )}
+        data-drop={JSON.stringify({ type: 'node', id: node.id })}
+        onPointerDown={(e) => onCardPointerDown(e, node)}
+      >
+        <span className="select-dot" />
+        {complete && (
+          <span className="complete-badge" title="Everything inside is resolved">
+            ✓
+          </span>
+        )}
+        <div className="card-label">
+          {KIND_ICON[node.kind]}
+          {node.special ? (
+            <span className="special-name">{node.name}</span>
+          ) : (
+            nameInput(node, `${KIND_LABEL[node.kind]} name…`)
+          )}
+        </div>
+        {node.kind === 'folder' && filePreviews.length > 0 && (
+          <div className="mini-grid">
+            {filePreviews.slice(0, 4).map((sub) => {
+              const t =
+                sub.kind === 'raw'
+                  ? { fileId: sub.ref.fileId, pageIndex: sub.ref.pageIndex ?? 0 }
+                  : fileThumbProps(sub);
+              return t ? (
+                <Thumb key={sub.id} {...t} backend={backend} className="mini-thumb" />
+              ) : (
+                <div key={sub.id} className="mini-more">
+                  ⤓
+                </div>
+              );
+            })}
+            {filePreviews.length > 4 && <div className="mini-more">+{filePreviews.length - 4}</div>}
+          </div>
+        )}
+        <div className="contents-note">
+          {node.expected ? 'expected — from finding aid' : containerSummary(node)}
+        </div>
+        <Chips model={model} id={node.id} />
+        <div className="card-actions">
+          {['folder', 'box'].includes(node.kind) && kids.length > 0 && (
+            <button
+              className="mini-btn"
+              title={`Explode into ${node.kind === 'folder' ? 'files' : 'folders'}`}
+              onClick={() => doExplode(node.id)}
+            >
+              💥
+            </button>
+          )}
+          {spills > 0 && (
+            <button
+              className="mini-btn"
+              title="Gather spilled cards back"
+              onClick={() => doGather(node.id)}
+            >
+              ⟲ gather {spills}
+            </button>
+          )}
+          {removable && !node.special && (
+            <button
+              className="mini-btn"
+              title="Remove empty slot"
+              onClick={() => mutate((m) => removeContainer(m, node.id))}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderBucketCard({ parent, members, key }) {
+    return (
+      <div
+        key={key}
+        className={[
+          'card bucket',
+          dropTarget === key ? 'drop-target' : '',
+          popId === key ? 'merge-pop' : '',
+          shakeId === key || (invalidHover === key && drag) ? 'shake' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        data-drop={JSON.stringify({ type: 'bucket', parentId: parent.id })}
+      >
+        <div className="card-label bucket-label">
+          <span className="q-glyph">?</span> in {KIND_LABEL[parent.kind]}{' '}
+          {parent.special ? '' : parent.name || '(unnamed)'}
+        </div>
+        <div className="bucket-items">
+          {members.map((m) => (
+            <div
+              key={m.id}
+              className={`bucket-item ${selected.has(m.id) ? 'selected' : ''} ${
+                drag?.itemId === m.id ? 'dragging-src' : ''
+              }`}
+              onPointerDown={(e) => onCardPointerDown(e, m)}
+            >
+              {m.kind === 'raw' ? (
+                <Thumb
+                  fileId={m.ref.fileId}
+                  pageIndex={m.ref.pageIndex ?? 0}
+                  backend={backend}
+                  className="bucket-thumb"
+                />
+              ) : m.kind === 'file' ? (
+                (() => {
+                  const t = fileThumbProps(m);
+                  return t ? (
+                    <Thumb {...t} backend={backend} className="bucket-thumb" />
+                  ) : (
+                    <span>⤓</span>
+                  );
+                })()
+              ) : (
+                <span className="bucket-kind">{KIND_ICON[m.kind]}</span>
+              )}
+              <span className="bucket-name">
+                {m.kind === 'raw'
+                  ? displayName(nodes.get(m.ref.fileId)?.name || '', getParsed(m.ref.fileId))
+                  : m.kind === 'file'
+                    ? m.title ||
+                      (m.source
+                        ? displayName(
+                            nodes.get(m.source.fileId)?.name || '',
+                            getParsed(m.source.fileId),
+                          )
+                        : 'file')
+                    : `${KIND_LABEL[m.kind]} ${m.name}`}
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="contents-note">drag out to resolve</div>
+      </div>
+    );
+  }
+
+  function renderNewSlot(kind) {
+    const key = `new-${kind}`;
+    return (
+      <div
+        key={key}
+        className={[
+          'card newcard',
+          dropTarget === key ? 'drop-target' : '',
+          shakeId === key || (invalidHover === key && drag) ? 'shake' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        data-drop={JSON.stringify({ type: 'new', kind })}
+        onClick={() => {
+          if (drag) return;
+          pushUndo();
+          const next = clone(model);
+          const container = addNode(next, { kind });
+          setModel(next);
+          setFocusNameId(container.id);
+        }}
+      >
+        + new {KIND_LABEL[kind].toLowerCase()}
+      </div>
+    );
+  }
+
+  const blockers = completeness?.blockers;
+  const totalUnits = savePlan?.units.reduce((a, u) => a + u.files.length, 0) || 0;
 
   return (
     <div className="filing-main" style={{ position: 'relative' }}>
       <div className="filing-head">
-        <h2>Filing: {scopeNode.name}</h2>
+        <h2>Filing{allScopes ? '' : `: ${scopeNode?.name}`}</h2>
+        <label className="scope-toggle">
+          <input
+            type="checkbox"
+            checked={allScopes}
+            onChange={(e) => setAllScopes(e.target.checked)}
+          />
+          All loaded folders
+        </label>
         <span className="hint">
-          Drag a page onto another to merge them into a document · documents merge into Folders ·
-          Folders into Boxes. Click to multi-select. Nothing is written until you hit Save.
+          Drop a card on a level to file it there — the drop fills in that metadata. ? buckets hold
+          “belongs here, not placed yet”. 💥 explodes one level down.
         </span>
+        <button className="btn small" onClick={() => fileInputRef.current?.click()}>
+          Load finding aid…
+        </button>
+        <input ref={fileInputRef} type="file" accept=".json" hidden onChange={onAidFile} />
       </div>
-      <div className="filing-grid">
-        {items.map(renderCard)}
-        {items.length === 0 && (
-          <div className="empty-state" style={{ width: '100%' }}>
-            No files under this folder. Pick another folder in the explorer.
+      {aidInfo && (
+        <div className="aid-note" title={aidInfo.status}>
+          Finding aid: <b>{aidInfo.collectionTitle}</b>
+          {aidInfo.dates ? `, ${aidInfo.dates}` : ''} — {aidInfo.archiveName}
+          {aidInfo.url && (
+            <>
+              {' · '}
+              <a href={aidInfo.url} target="_blank" rel="noreferrer">
+                source
+              </a>
+            </>
+          )}
+          {aidInfo.boxes.length === 0 && (
+            <span className="aid-warn">
+              {' '}
+              · box/folder inventory not available yet — expected slots are collection-level only
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="filing-columns">
+        {KINDS.map((kind) => (
+          <div key={kind} className={`fcol fcol-${kind}`}>
+            <div className="fcol-head">
+              {KIND_LABEL[kind]}
+              <span className="fcol-count">
+                {columns[kind].filter((c) => c.type === 'card').length}
+              </span>
+            </div>
+            <div className="fcol-body">
+              {columns[kind].map((entry) =>
+                entry.type === 'bucket'
+                  ? renderBucketCard(entry)
+                  : kind === 'raw'
+                    ? renderRawCard(entry.node)
+                    : kind === 'file'
+                      ? renderFileCard(entry)
+                      : renderContainerCard(entry),
+              )}
+              {['folder', 'box', 'collection', 'archive'].includes(kind) && renderNewSlot(kind)}
+              {columns[kind].length === 0 && kind === 'raw' && (
+                <div className="fcol-empty">Pages appear here when you 💥 a file</div>
+              )}
+            </div>
           </div>
-        )}
+        ))}
       </div>
 
-      {ghostItem && (
+      {ghostNode && (
         <div className={`ghost-card ${flying ? 'flying' : ''}`} style={flyingStyle || dragStyle}>
-          {ghostItem.kind === 'file' || ghostItem.kind === 'doc' ? (
-            <div className="card">
-              <Thumb fileId={firstFileId(ghostItem)} backend={backend} className="thumb" />
-            </div>
-          ) : (
-            <div className={`card ${ghostItem.kind}`}>
+          <div className={`card ${LEVEL[ghostNode.kind] >= 2 ? ghostNode.kind : ''}`}>
+            {ghostNode.kind === 'raw' ? (
+              <Thumb
+                fileId={ghostNode.ref.fileId}
+                pageIndex={ghostNode.ref.pageIndex ?? 0}
+                backend={backend}
+                className="thumb"
+              />
+            ) : ghostNode.kind === 'file' ? (
+              (() => {
+                const t = fileThumbProps(ghostNode);
+                return t ? (
+                  <Thumb {...t} backend={backend} className="thumb" />
+                ) : (
+                  <div className="thumb" />
+                );
+              })()
+            ) : (
               <div className="card-label">
-                {ghostItem.kind === 'folder' ? '📂' : '📦'} {ghostItem.label}
+                {KIND_ICON[ghostNode.kind]} {ghostNode.name}
               </div>
-            </div>
-          )}
+            )}
+            {dragCount > 1 && <span className="drag-count">{dragCount}</span>}
+          </div>
         </div>
       )}
 
       <div className="filing-bar">
         <span className="stats">
-          {stats.files} loose · {stats.docs} docs · {stats.folders} folders · {stats.boxes} boxes
+          {blockers &&
+            [
+              blockers.loose ? `${blockers.loose} loose` : '',
+              blockers.buckets ? `${blockers.buckets} in ?` : '',
+              blockers.unnamed ? `${blockers.unnamed} unnamed` : '',
+              blockers.shells ? `${blockers.shells} mid-explode` : '',
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          {blockers &&
+            !blockers.loose &&
+            !blockers.buckets &&
+            !blockers.unnamed &&
+            !blockers.shells &&
+            (completeness?.global ? '✦ everything filed' : 'nothing unresolved')}
         </span>
         {selected.size >= 2 && (
-          <button className="btn" disabled={!canMergeSelection} onClick={mergeSelection}>
+          <button className="btn" disabled={!canMergeSelection} onClick={doMergeSelection}>
             ⧉ Merge {selected.size} selected
           </button>
         )}
@@ -622,56 +1056,72 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, on
         <button className="btn" onClick={rebuild}>
           Reset arrangement
         </button>
-        <button className="btn primary" disabled={!savable} onClick={openSave}>
+        <button
+          className="btn primary"
+          disabled={!saveStats || saveStats.toWrite === 0}
+          onClick={() => setSaveOpen(true)}
+        >
           {backend.kind === 'demo' ? 'Save (sample)' : 'Save to Drive'}
+          {saveStats && saveStats.toWrite > 0 ? ` — ${saveStats.toWrite}` : ''}
         </button>
       </div>
 
-      {saveOpen && (
+      {grandWin && (
+        <div className="grand-overlay" onClick={() => setGrandWin(false)}>
+          <div className="grand-card">
+            <div className="grand-stars">✦ ✦ ✦</div>
+            <h2>Everything’s filed</h2>
+            <p>Every document has landed in an archive — nothing loose, nothing unresolved.</p>
+            <button className="btn primary" onClick={() => setGrandWin(false)}>
+              Continue
+            </button>
+          </div>
+        </div>
+      )}
+
+      {saveOpen && savePlan && (
         <div className="modal-overlay" onClick={() => !progress && setSaveOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>Save this arrangement</h3>
-            <div className="field">
-              <label>Collection</label>
-              <input
-                list="collections-list"
-                value={destCollection}
-                onChange={(e) => setDestCollection(e.target.value)}
-                placeholder="e.g. Good Poems"
-              />
-              <datalist id="collections-list">
-                {loadedCollections.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
-            </div>
-            <div className="field">
-              <label>Archive Name (optional)</label>
-              <input
-                value={destArchive}
-                onChange={(e) => setDestArchive(e.target.value)}
-                placeholder="e.g. Five Forks"
-              />
-            </div>
             <div className="note">
-              {destRoot ? (
+              {savePlan.units.length > 0 ? (
                 <>
-                  Filing into the existing collection folder <b>{destRoot.name}</b>.
+                  Writing <b>{saveStats.toWrite}</b> document{saveStats.toWrite === 1 ? '' : 's'}
+                  {saveStats.unchanged > 0 && (
+                    <> ({saveStats.unchanged} already in place, untouched)</>
+                  )}{' '}
+                  across{' '}
+                  {[...new Set(savePlan.units.map((u) => u.collection))].map((c, i) => (
+                    <span key={c}>
+                      {i > 0 && ', '}
+                      <b>Archive Capture — {c}</b>
+                    </span>
+                  ))}
+                  . Boxes and Folders become real nested folders; assembled documents become
+                  multi-page PDFs named by the same convention as the mobile app; sources whose
+                  every page found a home go to the Drive trash.
                 </>
               ) : (
-                <>
-                  A new Drive folder <b>Archive Capture — {destCollection.trim() || '…'}</b> will be
-                  created.
-                </>
-              )}{' '}
-              Boxes and Folders become real nested folders; merged documents become single
-              multi-page PDFs named the same way the mobile app names them, tags/comments/OMG flags
-              carried over. Sources of merged documents go to the Drive trash.
-              {stats.files > 0 && (
-                <>
-                  {' '}
-                  {stats.files} loose file{stats.files === 1 ? ' stays' : 's stay'} where they are.
-                </>
+                <>Nothing is fully resolved yet — place cards under a named collection first.</>
+              )}
+              {(savePlan.skipped.unresolved > 0 ||
+                savePlan.skipped.loose > 0 ||
+                savePlan.skipped.unnamed > 0) && (
+                <div className="skip-note">
+                  Left untouched:{' '}
+                  {[
+                    savePlan.skipped.unresolved
+                      ? `${savePlan.skipped.unresolved} in ? buckets`
+                      : '',
+                    savePlan.skipped.loose ? `${savePlan.skipped.loose} loose` : '',
+                    savePlan.skipped.unnamed
+                      ? `${savePlan.skipped.unnamed} under unnamed slots`
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                  .
+                </div>
               )}
             </div>
             {progress && (
@@ -703,7 +1153,7 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, on
                   </button>
                   <button
                     className="btn primary"
-                    disabled={Boolean(progress) || !destCollection.trim()}
+                    disabled={Boolean(progress) || totalUnits === 0}
                     onClick={runSave}
                   >
                     Save

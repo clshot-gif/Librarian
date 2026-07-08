@@ -64,7 +64,11 @@ function filedFile({
     demoSpec: {
       seed,
       pages: Array.from({ length: pages }, (_, i) => ({
-        heading: headings ? headings[i] : i === 0 ? `County correspondence, no. ${number}` : undefined,
+        heading: headings
+          ? headings[i]
+          : i === 0
+            ? `County correspondence, no. ${number}`
+            : undefined,
         footer: `${collection} — Box ${box}, Folder ${folderNum} — p.${i + 1}`,
       })),
       markedPages: marked || [],

@@ -226,7 +226,12 @@ describe('saveFiling', () => {
           folder: '2',
           files: [
             // untouched pristine file — placement identical
-            { nodeId: 'n1', title: '', refs: [{ fileId: 'U', pageIndex: null }], pristineFileId: 'U' },
+            {
+              nodeId: 'n1',
+              title: '',
+              refs: [{ fileId: 'U', pageIndex: null }],
+              pristineFileId: 'U',
+            },
           ],
         },
         {
@@ -246,7 +251,12 @@ describe('saveFiling', () => {
               pristineFileId: null,
             },
             // …and the third page as its own single-page document
-            { nodeId: 'n3', title: '', refs: [{ fileId: 'A', pageIndex: 2 }], pristineFileId: null },
+            {
+              nodeId: 'n3',
+              title: '',
+              refs: [{ fileId: 'A', pageIndex: 2 }],
+              pristineFileId: null,
+            },
           ],
         },
       ],
