@@ -88,6 +88,16 @@ unguarded issue; punted here on purpose (first pass, matches existing risk).
 - Filename: `Archive <n> - Collection <n> - Box <n> - Folder <n> - NNNNNN[ - OMG].pdf`,
   missing fields skipped, six-digit counter per Box+Folder scope starting after
   what's already in the destination folder (`src/lib/naming.js`).
+  **Title-replaces-number (Carter, 2026-07-08):** if a file has a `title`, the
+  title is used as the final segment *in place of* the number (a titled file
+  doesn't consume a counter value). Deliberate extension of the mobile app's
+  number-only convention; harmless since everything downstream reads the
+  `title` *property*, not the filename.
+- **Location lives in three places and must stay in sync:** the physical Drive
+  folder a file sits in, its `box`/`folder`/`collection`/`archive_name`
+  properties, and its filename. Any change to placement must update all three
+  or they drift silently (they did, before `refile.js`). `refileFile()` is the
+  one operation that does all three; route every placement change through it.
 - Markup bake = mobile-app convention: marked page gets a yellow warning
   banner, clean original appended at the PDF's back, `unmarked_backup_pages`
   updated (`src/lib/markupBake.js`). Strokes are recorded in PDF-point
@@ -164,6 +174,12 @@ additions) — verified live: flat save reloads flat, not as a `?` bucket.
   save plan. All Filing Mode logic lives here, fully unit-tested
 - `src/lib/mergeSave.js` — save plan → real Drive structure via
   `buildDocumentPdf` (merge-up and split/rebuild are one code path)
+- `src/lib/refile.js` — `refileFile()`: the single operation that keeps a
+  file's three representations of "where it lives" in sync (physical Drive
+  folder + `properties` + filename). Resolve/create the folder chain, move,
+  rename, set props, update the local tree. Used by Marking Mode saves; the
+  Explorer drag should route through it too (not yet — see TASKS.md). It's the
+  single-file distillation of mergeSave.js's pristine-file branch.
 - `src/lib/findingAid.js` + `findingAidSeed.json` — flat-JSON finding-aid
   ingestion (FWHC Records seed; box inventory pending real data)
 - `src/lib/pdfEngine.js` — pdf.js wrapper; thumbnails render with 'print'
