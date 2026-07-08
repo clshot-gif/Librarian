@@ -113,12 +113,19 @@ undo/reset, invalid-merge rejection, Save produced
 `Archive Capture — Good Poems/Folder 1/…000001-000003.pdf` with correct merged
 PDFs and metadata; explorer drag-move; switch-folders.
 
-**Real Drive:** first sign-in attempt (2026-07-07 evening) hit a "Picker
-developer key invalid" error that a retry got past — see TASKS.md's "Known
-bug" section, not yet diagnosed. Once past that, Carter reached his real
-files, but the Filing Mode save flow doesn't match how he actually wants to
-file things — that redesign was built on branch `filing-mode-redesign` and
-verified 2026-07-08 (below).
+**Real Drive:** blocked by the Google Picker "The API developer key is
+invalid" bug — reproduced on the live GitHub Pages site 2026-07-08, and
+earlier on localhost (where a browser-back + retry used to get past it). It has
+two halves: (1) a Cloud Console config problem (likely the Google Picker API
+isn't enabled on project 526107030062, and/or the *key's* HTTP-referrer
+restriction doesn't include `https://clshot-gif.github.io/*`), and (2) an app
+bug — when the Picker fails it fires no PICKED/CANCEL and never throws, so
+`pickFolders` (`src/lib/picker.js`) hangs and `startDrive`/`switchFolders`
+(`src/App.jsx`) trap the user with no way out. Full diagnosis + fix plan:
+`../handoff-bugfixes-CONTINUE.md`. This is the next work item.
+
+Once past the Picker, the goal is a real-Drive smoke test of the redesigned
+Filing Mode save path (only exercised against DemoBackend so far).
 
 ## Verified working (sample mode, 2026-07-08 — Filing Mode redesign)
 
