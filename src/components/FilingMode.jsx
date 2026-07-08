@@ -1275,6 +1275,12 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
                     ✕
                   </button>
                 </div>
+                {cur.kind === 'file' && (
+                  <div className="preview-rename">
+                    <span className="preview-rename-label">Name</span>
+                    {nameInput(cur, 'Untitled — type a name')}
+                  </div>
+                )}
                 <div className="preview-hint">
                   {cur.kind === 'file'
                     ? 'Scroll the pages. 💥 separates a page into the Unclassified column.'

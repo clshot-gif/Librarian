@@ -520,3 +520,68 @@ describe('save plan', () => {
     expect(looseNodes(state)).toHaveLength(0);
   });
 });
+
+describe('merge primary = earliest captured_at (drag-onto)', () => {
+  // Two titled files sharing a placement so both are `file` nodes (loose
+  // single-page files would be raws and can't merge-file).
+  function twoFileState() {
+    const corpus = makeCorpus([
+      {
+        id: 'early',
+        parsed: {
+          collection: 'C',
+          archiveName: 'A',
+          box: '5',
+          folder: '4',
+          title: 'Early Title',
+          capturedAt: '2026-01-01T00:00:00Z',
+        },
+      },
+      {
+        id: 'late',
+        parsed: {
+          collection: 'C',
+          archiveName: 'A',
+          box: '5',
+          folder: '4',
+          title: 'Late Title',
+          capturedAt: '2026-06-01T00:00:00Z',
+        },
+      },
+    ]);
+    const state = buildModel(corpus, ['root']);
+    const early = find(state, (n) => n.source?.fileId === 'early');
+    const late = find(state, (n) => n.source?.fileId === 'late');
+    return { state, getParsed: getParsedFrom(corpus), early, late };
+  }
+
+  it('file onto file is a mergeFiles drop', () => {
+    const { state, early, late } = twoFileState();
+    expect(dropOperation(state, late.id, { type: 'node', id: early.id })).toBe('mergeFiles');
+  });
+
+  it('earliest-captured title wins and leads the pages even when dragged onto the later file', () => {
+    // Drop target is the LATER file, but capture order — not drag order — decides.
+    const { state, getParsed, early, late } = twoFileState();
+    applyDrop(state, early.id, { type: 'node', id: late.id }, getParsed);
+    const survivor = state.nodes[late.id]; // the drop target survives the merge
+    expect(survivor.title).toBe('Early Title');
+    expect(survivor.meta.capturedAt).toBe('2026-01-01T00:00:00Z');
+    expect(childrenOf(state, survivor.id).map((p) => p.ref.fileId)).toEqual(['early', 'late']);
+  });
+
+  it('symmetric: dragging the later file onto the earlier gives the same result', () => {
+    const { state, getParsed, early, late } = twoFileState();
+    applyDrop(state, late.id, { type: 'node', id: early.id }, getParsed);
+    const survivor = state.nodes[early.id];
+    expect(survivor.title).toBe('Early Title');
+    expect(childrenOf(state, survivor.id).map((p) => p.ref.fileId)).toEqual(['early', 'late']);
+  });
+
+  it('falls back to the other title when the primary is untitled', () => {
+    const { state, getParsed, early, late } = twoFileState();
+    state.nodes[early.id].title = ''; // earliest has no name
+    applyDrop(state, late.id, { type: 'node', id: early.id }, getParsed);
+    expect(state.nodes[early.id].title).toBe('Late Title');
+  });
+});

@@ -380,11 +380,24 @@ export function applyDrop(state, dragId, target, getParsed) {
     const into = state.nodes[target.id];
     if (into.source) materializeFile(state, into, getParsed);
     if (drag.source) materializeFile(state, drag, getParsed);
-    for (const page of childrenOf(state, drag.id)) {
+    // The earliest-captured source is the primary: its pages lead, and its
+    // title + captured_at win any conflict. Capture order reflects reality;
+    // drag order is just handling (a person is likelier to drag two files in
+    // the wrong order than to have shot the pages out of order). Pages
+    // re-thread by capture time, not by which card was dropped onto which —
+    // so drag-onto and multi-select merge now behave identically.
+    const capOf = (n) => n.meta?.capturedAt || '';
+    const ordered = [into, drag].sort((a, b) => capOf(a).localeCompare(capOf(b)));
+    // Snapshot both page lists BEFORE reparenting — otherwise re-querying the
+    // survivor mid-loop re-counts the pages just moved in and flips the order.
+    const orderedPages = ordered.flatMap((file) => childrenOf(state, file.id));
+    for (const page of orderedPages) {
       page.parentId = into.id;
       page.order = state.seq++;
     }
-    if (!into.title && drag.title) into.title = drag.title;
+    const primary = ordered[0];
+    into.title = primary.title || ordered[1].title || '';
+    into.meta = { ...(into.meta || {}), capturedAt: earliestCapturedAt([into, drag]) };
     delete state.nodes[drag.id];
   } else if (op === 'nest') {
     const node = state.nodes[target.id];
