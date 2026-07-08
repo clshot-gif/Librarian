@@ -238,17 +238,28 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
         spillCounts.set(n.origin, (spillCounts.get(n.origin) || 0) + 1);
       }
     }
+    // Deliberately-skipped items (nested 2+ levels above their natural
+    // parent, e.g. a page dropped straight onto a Collection) stay visible
+    // as cards in their own column — struck-through chips mark the skipped
+    // levels, and they stay draggable if the user later fills the gap in.
+    const skippedFlat = (n) =>
+      n.parentId !== null &&
+      !n.bucket &&
+      model.nodes[n.parentId] &&
+      LEVEL[model.nodes[n.parentId].kind] - LEVEL[n.kind] >= 2;
     for (const n of all) {
       if (n.kind === 'raw') {
-        if (n.parentId === null) cols.raw.push({ key: n.id, type: 'card', node: n });
+        if (n.parentId === null || skippedFlat(n)) {
+          cols.raw.push({ key: n.id, type: 'card', node: n });
+        }
       } else if (n.kind === 'file') {
         const pages = childrenOf(model, n.id);
         const shell = n.materialized && pages.length === 0;
         const partial = spillCounts.has(n.id);
         // Filed files live inside their folder's card; file-column cards are
-        // the actionable ones — loose, mid-explode, or in a bucket (bucket
-        // members render inside the bucket card instead).
-        if (n.parentId === null || shell || partial) {
+        // the actionable ones — loose, mid-explode, deliberately skipped, or
+        // in a bucket (bucket members render inside the bucket card instead).
+        if (n.parentId === null || shell || partial || skippedFlat(n)) {
           if (!n.bucket) cols.file.push({ key: n.id, type: 'card', node: n, shell, partial });
         }
       } else {
@@ -670,6 +681,7 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
             </span>
           )}
         </div>
+        {node.parentId !== null && <Chips model={model} id={node.id} />}
       </div>
     );
   }
@@ -690,6 +702,11 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
       >
         <span className="select-dot" />
         <span className="pages-badge">{pageCount} pp</span>
+        {node.origin && model.nodes[node.origin] && (
+          <span className="badge origin-badge" title="spilled from an exploded card">
+            ⟲
+          </span>
+        )}
         {thumb ? (
           <Thumb {...thumb} backend={backend} className="thumb" />
         ) : (
@@ -732,7 +749,8 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
       const byKind = {};
       for (const k of kids) byKind[k.kind] = (byKind[k.kind] || 0) + 1;
       for (const [kind, n] of Object.entries(byKind)) {
-        parts.push(`${n} ${KIND_LABEL[kind].toLowerCase()}${n === 1 ? '' : 's'}`);
+        const word = KIND_LABEL[kind].toLowerCase();
+        parts.push(`${n} ${n === 1 ? word : word === 'box' ? 'boxes' : `${word}s`}`);
       }
       if (!parts.length) parts.push('empty');
     }
@@ -765,6 +783,11 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
         {complete && (
           <span className="complete-badge" title="Everything inside is resolved">
             ✓
+          </span>
+        )}
+        {node.origin && model.nodes[node.origin] && (
+          <span className="badge origin-badge" title="spilled from an exploded card">
+            ⟲
           </span>
         )}
         <div className="card-label">

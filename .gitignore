@@ -6,3 +6,4 @@ client_secret*.json
 *credentials*.json
 *service-account*.json
 .DS_Store
+.claude/settings.local.json

@@ -79,14 +79,16 @@ export function looseNodes(state) {
 
 // Where should a rebuilt file's "I came from here" pointer aim? Raw pages
 // spilled from a file shell point at the shell; the container that misses
-// them is the shell's parent. Files/folders spilled from a container point
-// at the container itself.
+// them is the shell's parent — or, when the shell was itself spilled loose
+// (folder exploded first, then the file), whatever the shell still owes
+// itself to. Files/folders spilled from a container point at the container.
 function inheritedOrigin(state, items) {
   for (const item of items) {
     if (!item.origin) continue;
     if (item.kind === 'raw') {
       const shell = state.nodes[item.origin];
       if (shell?.parentId) return shell.parentId;
+      if (shell?.origin) return shell.origin;
     } else {
       return item.origin;
     }
@@ -689,7 +691,8 @@ export function buildSavePlan(state) {
   const addFile = (node, ctx) => {
     const entry = fileEntry(node);
     if (!entry) return;
-    const key = [ctx.archiveName, ctx.collection, ctx.box, ctx.folder].join(' ');
+    // NUL separator: can't collide with anything a user can type in a name.
+    const key = [ctx.archiveName, ctx.collection, ctx.box, ctx.folder].join('\u0000');
     if (!units.has(key)) units.set(key, { ...ctx, files: [] });
     units.get(key).files.push(entry);
   };

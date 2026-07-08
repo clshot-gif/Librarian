@@ -243,6 +243,34 @@ describe('explode / rebuild / win state', () => {
     expect(comp.global).toBe(true);
   });
 
+  it('folder exploded first, then the loose file: rebuilt files still owe the folder', () => {
+    // The demo walkthrough order: 💥 the folder (file spills loose), 💥 the
+    // loose file (pages spill), rebuild, drag back. The shell has no parent
+    // at rebuild time, so the debt must come from the shell's own origin.
+    const { corpus, state } = setup();
+    const getParsed = getParsedFrom(corpus);
+    const file = find(state, (n) => n.kind === 'file');
+    const folder = find(state, (n) => n.kind === 'folder');
+
+    explodeNode(state, folder.id, getParsed);
+    expect(state.nodes[file.id].parentId).toBe(null);
+    expect(state.nodes[file.id].origin).toBe(folder.id);
+    const spilled = explodeNode(state, file.id, getParsed);
+
+    const fileA = state.nodes[mergeSelection(state, spilled.slice(0, 2), getParsed)];
+    const fileB = state.nodes[mergeSelection(state, spilled.slice(2), getParsed)];
+    expect(fileA.origin).toBe(folder.id);
+    expect(fileB.origin).toBe(folder.id);
+    expect(state.nodes[file.id]).toBeUndefined(); // spent shell gone
+
+    applyDrop(state, fileA.id, { type: 'node', id: folder.id });
+    expect(computeCompleteness(state).complete.has(folder.id)).toBe(false); // fileB still loose
+    applyDrop(state, fileB.id, { type: 'node', id: folder.id });
+    const comp = computeCompleteness(state);
+    expect(comp.complete.has(folder.id)).toBe(true); // win on the LAST drop
+    expect(comp.global).toBe(true);
+  });
+
   it('exploding a box spills folders; re-dropping one onto another box re-resolves it', () => {
     const corpus = makeCorpus([
       { id: 'a', parsed: { collection: 'C', archiveName: 'A', box: '1', folder: '1' } },

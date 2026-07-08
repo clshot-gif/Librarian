@@ -15,19 +15,21 @@ export function openPdf(bytes) {
 // Renders one page into the given canvas at a target CSS-pixel width
 // (times devicePixelRatio for sharpness). Returns the page's size in PDF
 // points — the coordinate space markup strokes are recorded in.
-export async function renderPage(doc, pageIndex, targetWidth, canvas) {
+export async function renderPage(doc, pageIndex, targetWidth, canvas, intent = 'display') {
   const page = await doc.getPage(pageIndex + 1);
   const base = page.getViewport({ scale: 1 });
   const scale = (targetWidth * (window.devicePixelRatio || 1)) / base.width;
   const viewport = page.getViewport({ scale });
   canvas.width = Math.floor(viewport.width);
   canvas.height = Math.floor(viewport.height);
-  await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport, intent }).promise;
   return { widthPts: base.width, heightPts: base.height };
 }
 
 // Renders a page to an offscreen canvas and returns it (used by the markup
-// bake, which needs raw pixels, and by thumbnails).
+// bake, which needs raw pixels, and by thumbnails). Uses 'print' intent:
+// 'display' schedules drawing on requestAnimationFrame, which never fires
+// in a hidden tab — one stalled job would block the whole thumbnail queue.
 export async function renderPageToBitmap(doc, pageIndex, targetWidth) {
   const canvas = document.createElement('canvas');
   const dims = await renderPage(
@@ -35,6 +37,7 @@ export async function renderPageToBitmap(doc, pageIndex, targetWidth) {
     pageIndex,
     targetWidth / (window.devicePixelRatio || 1),
     canvas,
+    'print',
   );
   return { canvas, ...dims };
 }
@@ -49,14 +52,10 @@ export function renderThumbnail(fileId, getBytes, width = 150, pageIndex = 0) {
   const key = `${fileId}#${pageIndex}`;
   if (thumbCache.has(key)) return thumbCache.get(key);
   const job = thumbQueue.then(async () => {
-    console.debug('[thumb] start', key);
     const bytes = await getBytes();
-    console.debug('[thumb] got bytes', key, bytes.length);
     const doc = await openPdf(bytes);
-    console.debug('[thumb] opened', key);
     const page = Math.min(pageIndex, doc.numPages - 1);
     const { canvas } = await renderPageToBitmap(doc, page, width);
-    console.debug('[thumb] rendered', key);
     const url = canvas.toDataURL('image/jpeg', 0.7);
     doc.destroy();
     return url;

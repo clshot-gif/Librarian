@@ -13,10 +13,17 @@ and turns them into a review/organize/file interface. Two modes:
   editable metadata, per-collection tags with master-pool autocomplete,
   attributed comments/OMG flags, generated citations (footnote + bibliography,
   with explicit `[box?]`-style placeholders when fields are missing).
-- **Filing Mode** — drag-to-merge card table: files merge into multi-page
-  documents, documents into Folders, Folders into Boxes (iOS-folder-style
-  animation + WebAudio chime; invalid merges shake + low buzz). Everything is
-  local + undoable until an explicit Save writes real structure to Drive.
+- **Filing Mode** (redesigned 2026-07-08) — six-column workspace, one column
+  per hierarchy level (Raw page → File → Folder → Box → Collection → Archive).
+  Dragging a card onto a level *is* the data entry: the drop nests it and
+  resolves that level's metadata in the same motion. Every level has a `?`
+  bucket ("belongs under this parent, slot unknown") distinct from deliberate
+  skips (struck-through chips, e.g. a page filed straight into a Collection).
+  💥 explodes any card one level down (Box→Folders, Folder→Files, File→Pages)
+  with ⟲ gather to undo; rebuilt files owe their source container until they
+  land, which is what fires the per-level win on the *last* drop. Finding-aid
+  JSON pre-populates expected slots. Everything is local + undoable until an
+  explicit Save writes real structure to Drive.
 
 Two data backends behind one interface (`src/lib/backend.js`):
 - **DriveBackend** — real Drive REST calls (port of batch-uploader's drive.js).
@@ -100,8 +107,32 @@ PDFs and metadata; explorer drag-move; switch-folders.
 developer key invalid" error that a retry got past — see TASKS.md's "Known
 bug" section, not yet diagnosed. Once past that, Carter reached his real
 files, but the Filing Mode save flow doesn't match how he actually wants to
-file things — see TASKS.md's "In progress" section; a redesign is scoped
-there, not yet built (branch `filing-mode-redesign`).
+file things — that redesign was built on branch `filing-mode-redesign` and
+verified 2026-07-08 (below).
+
+## Verified working (sample mode, 2026-07-08 — Filing Mode redesign)
+
+Full definition-of-done walk in sample mode: six columns with correct counts
+and finding-aid expected slots (FWHC Records collection + Sallie Bingham
+Center archive, dashed); `?`-bucket file dragged onto a folder resolves and
+empties the bucket; Box explode → spilled folders (⟲ badges) → re-file one
+onto another box → gather restores the rest; the flagship flow — explode
+Folder 4, explode its 6-page lumped file, multi-select pages into two new
+titled files (comment/OMG metadata rode with the right pages), drag both
+back — folder win fires on the LAST drop; deliberate skip (page → Collection
+directly) shows struck-through Box/Folder chips and stays visible/draggable;
+grand-win overlay once nothing is loose/bucketed; Save wrote 6 documents with
+bare-value filenames (`Five Forks - Good Poems - 5 - 4 - 000003 - OMG.pdf`,
+skipped levels omitted) and reconverged to 0-to-write after corpus reload.
+
+Verification gotcha worth keeping: pdf.js `page.render()` with the default
+'display' intent schedules on requestAnimationFrame, which never fires in a
+hidden tab — in the Claude-Preview browser (always hidden) every thumbnail
+hung forever, masquerading as a pdf.js bug. Offscreen bitmap rendering now
+uses `intent: 'print'` (immediate scheduling); the visible viewer keeps
+'display'. Known round-trip limitation, flagged for Carter: a deliberate
+skip saves fine but *reloads* as a `?` bucket — the Drive properties schema
+has no "blank on purpose" marker.
 
 ## Where things are
 
@@ -109,8 +140,17 @@ there, not yet built (branch `filing-mode-redesign`).
 - `src/lib/corpus.js` — tree loading (BFS), highlight tier computation
 - `src/components/PdfViewer.jsx` — render + zoom/pan/pinch/swipe + stroke capture
 - `src/components/MarkingMode.jsx` — save pipeline (bake → notes → props)
-- `src/components/FilingMode.jsx` — card workspace, pointer-drag merge, save modal
-- `src/lib/mergeSave.js` — arrangement → real Drive structure
+- `src/components/FilingMode.jsx` — six-column workspace UI: pointer drag,
+  buckets, explode/gather buttons, win animations, save modal (view layer only)
+- `src/lib/filingModel.js` — the pure six-level model: drop rules, explode/
+  gather/merge, origin debts, ancestry chips, completeness/win computation,
+  save plan. All Filing Mode logic lives here, fully unit-tested
+- `src/lib/mergeSave.js` — save plan → real Drive structure via
+  `buildDocumentPdf` (merge-up and split/rebuild are one code path)
+- `src/lib/findingAid.js` + `findingAidSeed.json` — flat-JSON finding-aid
+  ingestion (FWHC Records seed; box inventory pending real data)
+- `src/lib/pdfEngine.js` — pdf.js wrapper; thumbnails render with 'print'
+  intent (see verification gotcha above)
 - `src/lib/tagStore.js` — per-collection pools + master pool (localStorage +
   derived from loaded files; the mobile app's AsyncStorage pools are
   unreachable from the web, so pools rebuild from what's actually on files)
