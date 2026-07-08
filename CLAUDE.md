@@ -46,8 +46,12 @@ in `../.claude/launch.json`.
 Sample mode works immediately. Real mode needs (instructions also at the top
 of `src/config.js`):
 1. **Picker API key** — Cloud project `526107030062`: enable "Google Picker
-   API", create an API key, paste into `PICKER_API_KEY` in `src/config.js`.
-   The "Sign in with Google" button stays disabled (with a note) until then.
+   API", create an API key, then `cp .env.example .env.local` and paste the
+   key as `VITE_PICKER_API_KEY`. The key is read from `.env.local` (gitignored,
+   never committed) — restart the dev server after editing it, since Vite only
+   reads env files at startup. The "Sign in with Google" button stays disabled
+   (with a note) until a key is present. To rotate: delete the old key in Cloud
+   Console, create a new one, update `.env.local`.
 2. OAuth reuses the batch uploader's web client ID (localhost:5173 already
    authorized) — any user must be an OAuth **test user** on the consent screen
    (Hannah + Justina already are).
