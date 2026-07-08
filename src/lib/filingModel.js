@@ -22,7 +22,7 @@
 export const KINDS = ['raw', 'file', 'folder', 'box', 'collection', 'archive'];
 export const LEVEL = { raw: 0, file: 1, folder: 2, box: 3, collection: 4, archive: 5 };
 export const KIND_LABEL = {
-  raw: 'Page',
+  raw: 'Unclassified',
   file: 'File',
   folder: 'Folder',
   box: 'Box',
@@ -258,6 +258,10 @@ export function dropOperation(state, dragId, target) {
   if (target.type === 'new') {
     if (LEVEL[target.kind] <= LEVEL[drag.kind]) return null;
     if (target.kind === 'archive') return null; // archives come from finding aids / typing, not drops
+    // The File column's "new file" slot: promote a loose page into a
+    // standalone single-page file (some documents are genuinely one page).
+    // Only pages can land here — everything else files into containers.
+    if (target.kind === 'file') return drag.kind === 'raw' ? 'newSingleFile' : null;
     return 'newContainer';
   }
   if (target.type === 'bucket') {
@@ -346,6 +350,21 @@ export function applyDrop(state, dragId, target, getParsed) {
     }
     state.seq += 2;
     file.meta = { capturedAt: earliestCapturedAt([other, drag]) };
+    focusId = file.id;
+  } else if (op === 'newSingleFile') {
+    // One loose page → one single-page file (materialized so it saves as a
+    // rebuilt PDF, same path as any assembled document).
+    const file = addNode(state, {
+      kind: 'file',
+      materialized: true,
+      hint: drag.hint,
+      meta: { capturedAt: drag.meta?.capturedAt },
+    });
+    file.origin = inheritedOrigin(state, [drag]);
+    drag.parentId = file.id;
+    drag.bucket = false;
+    drag.origin = null;
+    drag.order = state.seq++;
     focusId = file.id;
   } else if (op === 'addPage') {
     const file = addPageTargetFile(state, target);
@@ -447,6 +466,26 @@ export function explodeNode(state, id, getParsed) {
     child.origin = id;
   }
   return spilled.map((c) => c.id);
+}
+
+// Pop a single page out of a file, back to the Unclassified column as its own
+// standalone page (used by the enlarged preview's per-page 💥). `ordinal` is
+// the page's position among the file's current pages. If the file was still
+// pristine (one whole Drive file), it's materialized first — removing a page
+// necessarily rebuilds the remaining pages into a new PDF on save. Returns the
+// separated page's node id, or null if nothing was separated.
+export function separatePage(state, fileId, ordinal, getParsed) {
+  const file = state.nodes[fileId];
+  if (!file || file.kind !== 'file') return null;
+  if (file.source) materializeFile(state, file, getParsed);
+  const page = childrenOf(state, fileId)[ordinal];
+  if (!page) return null;
+  page.parentId = null;
+  page.bucket = false;
+  page.origin = null;
+  page.order = state.seq++;
+  cleanupShells(state);
+  return page.id;
 }
 
 // Put every still-loose spilled child back where it came from.

@@ -49,7 +49,10 @@ const thumbCache = new Map();
 // concurrency-limited so a big folder doesn't spawn 200 workers at once.
 let thumbQueue = Promise.resolve();
 export function renderThumbnail(fileId, getBytes, width = 150, pageIndex = 0) {
-  const key = `${fileId}#${pageIndex}`;
+  // Width is part of the key: the same page is cached separately at card size
+  // (150) and at enlarged-preview size, so previewing doesn't return a blurry
+  // thumbnail (and vice-versa).
+  const key = `${fileId}#${pageIndex}#${width}`;
   if (thumbCache.has(key)) return thumbCache.get(key);
   const job = thumbQueue.then(async () => {
     const bytes = await getBytes();

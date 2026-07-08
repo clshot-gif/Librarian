@@ -14,6 +14,7 @@ import {
   applyDrop,
   mergeSelection,
   explodeNode,
+  separatePage,
   gatherBack,
   removeContainer,
   ancestry,
@@ -35,11 +36,17 @@ import demoSeed from '../lib/findingAidSeed.json';
 const KIND_ICON = { folder: '📂', box: '📦', collection: '🗃', archive: '🏛' };
 const clone = (m) => JSON.parse(JSON.stringify(m));
 
-function Thumb({ fileId, pageIndex = 0, backend, className }) {
+// Session-scoped "don't ask me again" for the page-separation confirm. A
+// module-level flag (not React state) is deliberate: it should persist across
+// data reloads and mode switches for the whole time the site is loaded, and
+// reset only on a full browser reload — exactly what Carter asked for.
+let explodeConfirmSuppressed = false;
+
+function Thumb({ fileId, pageIndex = 0, backend, className, size = 150 }) {
   const [url, setUrl] = useState(null);
   useEffect(() => {
     let on = true;
-    renderThumbnail(fileId, () => backend.getPdfBytes(fileId), 150, pageIndex)
+    renderThumbnail(fileId, () => backend.getPdfBytes(fileId), size, pageIndex)
       .then((u) => {
         if (on) setUrl(u);
       })
@@ -47,7 +54,7 @@ function Thumb({ fileId, pageIndex = 0, backend, className }) {
     return () => {
       on = false;
     };
-  }, [fileId, pageIndex, backend]);
+  }, [fileId, pageIndex, backend, size]);
   return url ? (
     <img src={url} className={className} alt="" draggable={false} />
   ) : (
@@ -119,6 +126,10 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
   const [aidInfo, setAidInfo] = useState(null);
   const [saveOpen, setSaveOpen] = useState(false);
   const [progress, setProgress] = useState(null);
+  // Enlarged preview: a drill-down stack of node ids (last = what's shown).
+  const [preview, setPreview] = useState(null);
+  const [explodeConfirm, setExplodeConfirm] = useState(null); // {fileId, ordinal}
+  const [dontAskExplode, setDontAskExplode] = useState(false);
 
   const dragRef = useRef(null);
   const undoStack = useRef([]);
@@ -476,6 +487,52 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
     setTimeout(() => setPopId(null), 400);
   }
 
+  // ── Enlarged preview / drill-down ────────────────────────────────────────
+  // Double-clicking any card opens it enlarged. Containers show their contents
+  // as a grid you can click into (drilling one level down at a time); files
+  // show their pages scrollable; a lone page shows itself. Reading only —
+  // nothing mutates until you 💥 a page out of a document.
+  function openPreview(e, id) {
+    if (e.target.closest('input, button, textarea')) return;
+    setPreview([id]);
+  }
+
+  // The pages of a file, as {fileId, pageIndex} refs, whether the file is
+  // still a single pristine Drive PDF or already rebuilt from page nodes.
+  function filePageRefs(node) {
+    if (node.source) {
+      const pc = node.meta?.pageCount || 1;
+      return Array.from({ length: pc }, (_, i) => ({ fileId: node.source.fileId, pageIndex: i }));
+    }
+    return childrenOf(model, node.id).map((p) => ({
+      fileId: p.ref.fileId,
+      pageIndex: p.ref.pageIndex ?? 0,
+    }));
+  }
+
+  // 💥 in the document view: separate one page back to Unclassified. Shows the
+  // confirm first unless the user opted out this session.
+  function requestSeparatePage(fileId, ordinal) {
+    if (explodeConfirmSuppressed) doSeparatePage(fileId, ordinal);
+    else setExplodeConfirm({ fileId, ordinal });
+  }
+
+  function doSeparatePage(fileId, ordinal) {
+    pushUndo();
+    const next = clone(model);
+    const sepId = separatePage(next, fileId, ordinal, getParsed);
+    setModel(next);
+    playExplode();
+    if (sepId) {
+      setSpillIds(new Set([sepId]));
+      setTimeout(() => setSpillIds(new Set()), 700);
+    }
+    // If the document is gone or emptied out, back out of its (now stale) view.
+    if (!next.nodes[fileId] || childrenOf(next, fileId).length === 0) {
+      setPreview((p) => (p && p.length > 1 ? p.slice(0, -1) : null));
+    }
+  }
+
   // ── Selection merge (kept gesture: several pages/files → one file) ──────
   const selectedNodes = model ? [...selected].map((id) => model.nodes[id]).filter(Boolean) : [];
   const canMergeSelection =
@@ -654,6 +711,7 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
         className={cardStateClasses(node.id, 'raw-card')}
         data-drop={JSON.stringify({ type: 'node', id: node.id })}
         onPointerDown={(e) => onCardPointerDown(e, node)}
+        onDoubleClick={(e) => openPreview(e, node.id)}
       >
         <span className="select-dot" />
         {node.meta?.omg && <span className="omg-flag">OMG</span>}
@@ -699,6 +757,7 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
         )}
         data-drop={JSON.stringify({ type: 'node', id: node.id })}
         onPointerDown={(e) => onCardPointerDown(e, node)}
+        onDoubleClick={(e) => openPreview(e, node.id)}
       >
         <span className="select-dot" />
         <span className="pages-badge">{pageCount} pp</span>
@@ -778,6 +837,7 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
         )}
         data-drop={JSON.stringify({ type: 'node', id: node.id })}
         onPointerDown={(e) => onCardPointerDown(e, node)}
+        onDoubleClick={(e) => openPreview(e, node.id)}
       >
         <span className="select-dot" />
         {complete && (
@@ -879,6 +939,7 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
                 drag?.itemId === m.id ? 'dragging-src' : ''
               }`}
               onPointerDown={(e) => onCardPointerDown(e, m)}
+              onDoubleClick={(e) => openPreview(e, m.id)}
             >
               {m.kind === 'raw' ? (
                 <Thumb
@@ -934,7 +995,9 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
           .join(' ')}
         data-drop={JSON.stringify({ type: 'new', kind })}
         onClick={() => {
-          if (drag) return;
+          // The File slot is drop-only — a file is made of pages, so it's born
+          // by dropping a page here, never as an empty click-created shell.
+          if (drag || kind === 'file') return;
           pushUndo();
           const next = clone(model);
           const container = addNode(next, { kind });
@@ -942,9 +1005,103 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
           setFocusNameId(container.id);
         }}
       >
-        + new {KIND_LABEL[kind].toLowerCase()}
+        {kind === 'file' ? '＋ new file (drop a page)' : `+ new ${KIND_LABEL[kind].toLowerCase()}`}
       </div>
     );
+  }
+
+  // ── Preview rendering ────────────────────────────────────────────────────
+  const previewLabel = (n) =>
+    n.kind === 'raw'
+      ? displayName(nodes.get(n.ref.fileId)?.name || '', getParsed(n.ref.fileId))
+      : n.kind === 'file'
+        ? n.title || 'Untitled file'
+        : n.special
+          ? n.name
+          : n.name || `(unnamed ${KIND_LABEL[n.kind].toLowerCase()})`;
+
+  const previewGlyph = (n) => KIND_ICON[n.kind] || (n.kind === 'file' ? '📄' : '🖼');
+
+  function renderPreviewTile(child) {
+    const thumb =
+      child.kind === 'raw'
+        ? { fileId: child.ref.fileId, pageIndex: child.ref.pageIndex ?? 0 }
+        : child.kind === 'file'
+          ? fileThumbProps(child)
+          : null;
+    const pageCount = child.source
+      ? child.meta?.pageCount || 1
+      : childrenOf(model, child.id).length;
+    return (
+      <button
+        key={child.id}
+        className={`preview-tile ${child.bucket ? 'is-bucket' : ''}`}
+        onClick={() => setPreview((p) => [...p, child.id])}
+        title={child.bucket ? 'In a ? bucket — click to view' : 'Click to open'}
+      >
+        {thumb ? (
+          <Thumb {...thumb} backend={backend} size={260} className="preview-tile-thumb" />
+        ) : (
+          <span className="preview-tile-icon">{previewGlyph(child)}</span>
+        )}
+        <span className="preview-tile-name">{previewLabel(child)}</span>
+        {child.kind === 'file' && <span className="preview-tile-badge">{pageCount} pp</span>}
+        {child.bucket && <span className="preview-tile-q">?</span>}
+      </button>
+    );
+  }
+
+  function renderPreviewBody(node) {
+    if (!node) return null;
+    if (node.kind === 'raw') {
+      return (
+        <div className="preview-pages">
+          <div className="preview-page">
+            <Thumb
+              fileId={node.ref.fileId}
+              pageIndex={node.ref.pageIndex ?? 0}
+              backend={backend}
+              size={900}
+              className="preview-page-img"
+            />
+          </div>
+        </div>
+      );
+    }
+    if (node.kind === 'file') {
+      const refs = filePageRefs(node);
+      return (
+        <div className="preview-pages">
+          {refs.map((r, i) => (
+            <div className="preview-page" key={`${r.fileId}#${r.pageIndex}#${i}`}>
+              <Thumb
+                fileId={r.fileId}
+                pageIndex={r.pageIndex}
+                backend={backend}
+                size={900}
+                className="preview-page-img"
+              />
+              {refs.length > 1 && (
+                <button
+                  className="preview-explode"
+                  title="Separate this page into the Unclassified column"
+                  onClick={() => requestSeparatePage(node.id, i)}
+                >
+                  💥 page {i + 1}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    const kids = [...childrenOf(model, node.id), ...childrenOf(model, node.id, { buckets: true })];
+    if (!kids.length) {
+      return (
+        <div className="preview-empty">This {KIND_LABEL[node.kind].toLowerCase()} is empty.</div>
+      );
+    }
+    return <div className="preview-grid">{kids.map(renderPreviewTile)}</div>;
   }
 
   const blockers = completeness?.blockers;
@@ -1011,7 +1168,8 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
                       ? renderFileCard(entry)
                       : renderContainerCard(entry),
               )}
-              {['folder', 'box', 'collection', 'archive'].includes(kind) && renderNewSlot(kind)}
+              {['file', 'folder', 'box', 'collection', 'archive'].includes(kind) &&
+                renderNewSlot(kind)}
               {columns[kind].length === 0 && kind === 'raw' && (
                 <div className="fcol-empty">Pages appear here when you 💥 a file</div>
               )}
@@ -1088,6 +1246,88 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
           {saveStats && saveStats.toWrite > 0 ? ` — ${saveStats.toWrite}` : ''}
         </button>
       </div>
+
+      {preview &&
+        preview.length > 0 &&
+        (() => {
+          const stack = preview.map((id) => model.nodes[id]).filter(Boolean);
+          if (!stack.length) return null;
+          const cur = stack[stack.length - 1];
+          return (
+            <div className="preview-overlay" onClick={() => setPreview(null)}>
+              <div className="preview-panel" onClick={(e) => e.stopPropagation()}>
+                <div className="preview-head">
+                  <div className="preview-crumbs">
+                    {stack.map((n, i) => (
+                      <span key={n.id} className="crumb-wrap">
+                        {i > 0 && <span className="crumb-sep">›</span>}
+                        <button
+                          className="crumb"
+                          disabled={i === stack.length - 1}
+                          onClick={() => setPreview(stack.slice(0, i + 1).map((s) => s.id))}
+                        >
+                          {previewGlyph(n)} {previewLabel(n)}
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <button className="preview-close" onClick={() => setPreview(null)}>
+                    ✕
+                  </button>
+                </div>
+                <div className="preview-hint">
+                  {cur.kind === 'file'
+                    ? 'Scroll the pages. 💥 separates a page into the Unclassified column.'
+                    : cur.kind === 'raw'
+                      ? 'A single unclassified page.'
+                      : 'Click an item to open it.'}
+                </div>
+                <div className="preview-body">{renderPreviewBody(cur)}</div>
+              </div>
+            </div>
+          );
+        })()}
+
+      {explodeConfirm && (
+        <div
+          className="modal-overlay"
+          style={{ zIndex: 400 }}
+          onClick={() => setExplodeConfirm(null)}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Separate this page?</h3>
+            <div className="note">
+              This page will be separated from the document as a single-page PDF in the Unclassified
+              column. Do you want to continue?
+            </div>
+            <label className="scope-toggle">
+              <input
+                type="checkbox"
+                checked={dontAskExplode}
+                onChange={(e) => setDontAskExplode(e.target.checked)}
+              />
+              Don’t show this message again (until I reload the page)
+            </label>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setExplodeConfirm(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                onClick={() => {
+                  if (dontAskExplode) explodeConfirmSuppressed = true;
+                  const { fileId, ordinal } = explodeConfirm;
+                  setExplodeConfirm(null);
+                  setDontAskExplode(false);
+                  doSeparatePage(fileId, ordinal);
+                }}
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {grandWin && (
         <div className="grand-overlay" onClick={() => setGrandWin(false)}>

@@ -6,6 +6,7 @@ import {
   applyDrop,
   mergeSelection,
   explodeNode,
+  separatePage,
   gatherBack,
   computeCompleteness,
   buildSavePlan,
@@ -322,6 +323,72 @@ describe('explode / rebuild / win state', () => {
     expect(folder9.origin).toBe(null);
     const chain = ancestry(state, folder9.id);
     expect(chain[0]).toMatchObject({ kind: 'box', name: '1', state: 'resolved' });
+  });
+});
+
+describe('single-page promotion and page separation', () => {
+  it('a raw page dropped on the File column new-file slot becomes a single-page file', () => {
+    const corpus = makeCorpus([{ id: 'r1', parsed: {} }]);
+    const state = buildModel(corpus, ['root']);
+    const raw = find(state, (n) => n.kind === 'raw');
+    expect(dropOperation(state, raw.id, { type: 'new', kind: 'file' })).toBe('newSingleFile');
+    const res = applyDrop(state, raw.id, { type: 'new', kind: 'file' });
+    const file = state.nodes[res.focusId];
+    expect(file.kind).toBe('file');
+    expect(file.materialized).toBe(true);
+    expect(file.source).toBeUndefined();
+    const pages = childrenOf(state, file.id);
+    expect(pages.map((p) => p.id)).toEqual([raw.id]);
+    expect(pages[0].parentId).toBe(file.id);
+  });
+
+  it('only pages may use the new-file slot — a file cannot', () => {
+    const corpus = makeCorpus([{ id: 'm', parsed: { pageCount: 2 } }]);
+    const state = buildModel(corpus, ['root']);
+    const file = find(state, (n) => n.kind === 'file');
+    expect(dropOperation(state, file.id, { type: 'new', kind: 'file' })).toBe(null);
+  });
+
+  it('a promoted single-page file files into a folder and saves as one page', () => {
+    const corpus = makeCorpus([
+      { id: 'r1', parsed: {} },
+      {
+        id: 'filed',
+        parsed: { collection: 'C', archiveName: 'A', box: '1', folder: '1' },
+      },
+    ]);
+    const state = buildModel(corpus, ['root']);
+    const raw = find(state, (n) => n.kind === 'raw');
+    const folder = find(state, (n) => n.kind === 'folder');
+    const res = applyDrop(state, raw.id, { type: 'new', kind: 'file' });
+    applyDrop(state, res.focusId, { type: 'node', id: folder.id });
+    const plan = buildSavePlan(state);
+    const entry = plan.units
+      .flatMap((u) => u.files)
+      .find((f) => f.refs.some((r) => r.fileId === 'r1'));
+    expect(entry.refs).toEqual([{ fileId: 'r1', pageIndex: null }]);
+  });
+
+  it('separatePage pops one page out of a pristine file, loose in Unclassified', () => {
+    const corpus = makeCorpus([
+      {
+        id: 'lump',
+        parsed: { collection: 'C', archiveName: 'A', box: '5', folder: '4', pageCount: 3 },
+      },
+    ]);
+    const state = buildModel(corpus, ['root']);
+    const getParsed = getParsedFrom(corpus);
+    const file = find(state, (n) => n.kind === 'file');
+    const sepId = separatePage(state, file.id, 1, getParsed);
+    const sep = state.nodes[sepId];
+    expect(sep.kind).toBe('raw');
+    expect(sep.parentId).toBe(null);
+    expect(sep.origin).toBe(null);
+    expect(sep.ref).toEqual({ fileId: 'lump', pageIndex: 1 });
+    // The source file is now rebuilt from its two remaining pages.
+    expect(state.nodes[file.id].source).toBeUndefined();
+    expect(childrenOf(state, file.id)).toHaveLength(2);
+    expect(looseNodes(state).some((n) => n.id === sepId)).toBe(true);
   });
 });
 
