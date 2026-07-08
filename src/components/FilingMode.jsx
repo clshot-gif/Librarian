@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { renderThumbnail } from '../lib/pdfEngine.js';
 import { displayName } from '../lib/naming.js';
 import { playMergeDing, playNope } from '../lib/sound.js';
@@ -29,27 +29,39 @@ function Thumb({ fileId, backend, className }) {
   useEffect(() => {
     let on = true;
     renderThumbnail(fileId, () => backend.getPdfBytes(fileId))
-      .then((u) => { if (on) setUrl(u); })
+      .then((u) => {
+        if (on) setUrl(u);
+      })
       .catch(() => {});
-    return () => { on = false; };
+    return () => {
+      on = false;
+    };
   }, [fileId, backend]);
-  return url
-    ? <img src={url} className={className} alt="" draggable={false} />
-    : <div className={className} />;
+  return url ? (
+    <img src={url} className={className} alt="" draggable={false} />
+  ) : (
+    <div className={className} />
+  );
 }
 
 function countStats(items) {
-  let files = 0, docs = 0, folders = 0, boxes = 0;
+  let files = 0,
+    docs = 0,
+    folders = 0,
+    boxes = 0;
   for (const i of items) {
     if (i.kind === 'file') files++;
     else if (i.kind === 'doc') docs++;
     else if (i.kind === 'folder') folders++;
-    else if (i.kind === 'box') { boxes++; folders += i.folders.length; }
+    else if (i.kind === 'box') {
+      boxes++;
+      folders += i.folders.length;
+    }
   }
   return { files, docs, folders, boxes };
 }
 
-export default function FilingMode({ backend, nodes, version, scopeId, roots, user, onReload }) {
+export default function FilingMode({ backend, nodes, version, scopeId, roots, onReload }) {
   const [items, setItems] = useState([]);
   const [selected, setSelected] = useState(() => new Set());
   const [drag, setDrag] = useState(null); // {itemId, x, y}
@@ -77,20 +89,27 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
     const walk = (id, path) => {
       const n = nodes.get(id);
       if (!n) return;
-      if (!n.isFolder) { files.push({ node: n, path }); return; }
-      const sub = id === scopeId ? '' : (path ? `${path} / ${n.name}` : n.name);
+      if (!n.isFolder) {
+        files.push({ node: n, path });
+        return;
+      }
+      const sub = id === scopeId ? '' : path ? `${path} / ${n.name}` : n.name;
       n.children.forEach((c) => walk(c, sub));
     };
     if (scopeId && nodes.get(scopeId)) walk(scopeId, '');
-    files.sort((a, b) => (a.node.parsed?.capturedAt || '').localeCompare(b.node.parsed?.capturedAt || ''));
-    setItems(files.map((f) => ({
-      kind: 'file',
-      id: `w${counterRef.current++}`,
-      fileId: f.node.id,
-      name: displayName(f.node.name, f.node.parsed),
-      capturedAt: f.node.parsed?.capturedAt || '',
-      srcPath: f.path,
-    })));
+    files.sort((a, b) =>
+      (a.node.parsed?.capturedAt || '').localeCompare(b.node.parsed?.capturedAt || ''),
+    );
+    setItems(
+      files.map((f) => ({
+        kind: 'file',
+        id: `w${counterRef.current++}`,
+        fileId: f.node.id,
+        name: displayName(f.node.name, f.node.parsed),
+        capturedAt: f.node.parsed?.capturedAt || '',
+        srcPath: f.path,
+      })),
+    );
     setSelected(new Set());
     undoStack.current = [];
   }, [nodes, scopeId]);
@@ -98,7 +117,9 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
   // Rebuild when the scope changes or the corpus is reloaded (new Map
   // identity). In-session version bumps do NOT rebuild — that would wipe
   // an arrangement in progress.
-  useEffect(() => { rebuild(); }, [rebuild]);
+  useEffect(() => {
+    rebuild();
+  }, [rebuild]);
 
   const pushUndo = () => {
     undoStack.current.push(JSON.stringify(items));
@@ -111,7 +132,7 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
       setItems(JSON.parse(prev));
       setSelected(new Set());
     }
-  }, [items]);
+  }, []);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -126,14 +147,15 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
 
   function nextLabel(kind) {
     let max = 0;
-    const scan = (arr) => arr.forEach((i) => {
-      if (i.kind === kind) {
-        const n = parseInt(i.label, 10);
-        if (!Number.isNaN(n)) max = Math.max(max, n);
-      }
-      if (i.kind === 'box') scan(i.folders);
-      if (i.kind === 'folder') scan(i.items);
-    });
+    const scan = (arr) =>
+      arr.forEach((i) => {
+        if (i.kind === kind) {
+          const n = parseInt(i.label, 10);
+          if (!Number.isNaN(n)) max = Math.max(max, n);
+        }
+        if (i.kind === 'box') scan(i.folders);
+        if (i.kind === 'folder') scan(i.items);
+      });
     scan(items);
     return String(max + 1);
   }
@@ -151,23 +173,43 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
 
     switch (type) {
       case 'newDoc':
-        replacement = { kind: 'doc', id: nid(), title: '', pageFileIds: [target.fileId, dragged.fileId] };
+        replacement = {
+          kind: 'doc',
+          id: nid(),
+          title: '',
+          pageFileIds: [target.fileId, dragged.fileId],
+        };
         editTitle = replacement.id;
         break;
       case 'addPage':
         replacement = { ...target, pageFileIds: [...target.pageFileIds, dragged.fileId] };
         break;
       case 'addPageReverse':
-        replacement = { kind: 'doc', id: nid(), title: dragged.title, pageFileIds: [target.fileId, ...dragged.pageFileIds] };
+        replacement = {
+          kind: 'doc',
+          id: nid(),
+          title: dragged.title,
+          pageFileIds: [target.fileId, ...dragged.pageFileIds],
+        };
         break;
       case 'newFolder':
-        replacement = { kind: 'folder', id: nid(), label: nextLabel('folder'), items: [target, dragged] };
+        replacement = {
+          kind: 'folder',
+          id: nid(),
+          label: nextLabel('folder'),
+          items: [target, dragged],
+        };
         break;
       case 'addToFolder':
         replacement = { ...target, items: [...target.items, dragged] };
         break;
       case 'newBox':
-        replacement = { kind: 'box', id: nid(), label: nextLabel('box'), folders: [target, dragged] };
+        replacement = {
+          kind: 'box',
+          id: nid(),
+          label: nextLabel('box'),
+          folders: [target, dragged],
+        };
         break;
       case 'addToBox':
         replacement = { ...target, folders: [...target.folders, dragged] };
@@ -187,10 +229,10 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
   // captured_at (the handoff's rule for select-several-then-merge);
   // folders combine into a box.
   const selectedItems = items.filter((i) => selected.has(i.id));
-  const canMergeSelection = selected.size >= 2 && (
-    selectedItems.every((i) => i.kind === 'file' || i.kind === 'doc') ||
-    selectedItems.every((i) => i.kind === 'folder')
-  );
+  const canMergeSelection =
+    selected.size >= 2 &&
+    (selectedItems.every((i) => i.kind === 'file' || i.kind === 'doc') ||
+      selectedItems.every((i) => i.kind === 'folder'));
 
   function itemCapturedAt(item) {
     if (item.kind === 'file') return item.capturedAt;
@@ -208,9 +250,13 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
     if (selectedItems[0].kind === 'folder') {
       merged = { kind: 'box', id: nid, label: nextLabel('box'), folders: selectedItems };
     } else {
-      const ordered = [...selectedItems].sort((a, b) => itemCapturedAt(a).localeCompare(itemCapturedAt(b)));
+      const ordered = [...selectedItems].sort((a, b) =>
+        itemCapturedAt(a).localeCompare(itemCapturedAt(b)),
+      );
       merged = {
-        kind: 'doc', id: nid, title: '',
+        kind: 'doc',
+        id: nid,
+        title: '',
         pageFileIds: ordered.flatMap((i) => (i.kind === 'file' ? [i.fileId] : i.pageFileIds)),
       };
       setTitleEditId(nid);
@@ -230,8 +276,11 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
     if (e.target.closest('input, button, textarea')) return;
     const rect = e.currentTarget.getBoundingClientRect();
     dragRef.current = {
-      itemId: item.id, startX: e.clientX, startY: e.clientY,
-      originRect: rect, started: false,
+      itemId: item.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      originRect: rect,
+      started: false,
     };
     const onMove = (ev) => {
       const d = dragRef.current;
@@ -248,12 +297,15 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
           const target = items.find((i) => i.id === overId);
           const dragged = items.find((i) => i.id === d.itemId);
           if (target && dragged && mergeType(target, dragged)) {
-            setDropId(overId); setInvalidHoverId(null);
+            setDropId(overId);
+            setInvalidHoverId(null);
           } else {
-            setDropId(null); setInvalidHoverId(overId);
+            setDropId(null);
+            setInvalidHoverId(overId);
           }
         } else {
-          setDropId(null); setInvalidHoverId(null);
+          setDropId(null);
+          setInvalidHoverId(null);
         }
       }
     };
@@ -267,7 +319,8 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
         // Plain click: toggle selection.
         setSelected((s) => {
           const next = new Set(s);
-          if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+          if (next.has(item.id)) next.delete(item.id);
+          else next.add(item.id);
           return next;
         });
         setDrag(null);
@@ -285,11 +338,16 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
         const rect = el.closest('[data-card-id]').getBoundingClientRect();
         setFlying({
           itemId: d.itemId,
-          x: rect.left + rect.width / 2, y: rect.top + rect.height / 2,
-          scale: 0.15, opacity: 0.5,
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+          scale: 0.15,
+          opacity: 0.5,
         });
         setTimeout(() => {
-          setFlying(null); setDrag(null); setDropId(null); setInvalidHoverId(null);
+          setFlying(null);
+          setDrag(null);
+          setDropId(null);
+          setInvalidHoverId(null);
           applyMerge(overId, d.itemId);
         }, 170);
       } else {
@@ -303,9 +361,15 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
           itemId: d.itemId,
           x: d.originRect.left + d.originRect.width / 2,
           y: d.originRect.top + d.originRect.height / 2,
-          scale: 1, opacity: 0.3,
+          scale: 1,
+          opacity: 0.3,
         });
-        setTimeout(() => { setFlying(null); setDrag(null); setDropId(null); setInvalidHoverId(null); }, 180);
+        setTimeout(() => {
+          setFlying(null);
+          setDrag(null);
+          setDropId(null);
+          setInvalidHoverId(null);
+        }, 180);
       }
     };
     window.addEventListener('pointermove', onMove);
@@ -329,13 +393,16 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
 
   function renderCard(item) {
     const classes = [
-      'card', item.kind,
+      'card',
+      item.kind,
       selected.has(item.id) ? 'selected' : '',
       dropId === item.id ? 'drop-target' : '',
       drag?.itemId === item.id ? 'dragging-src' : '',
       popId === item.id ? 'merge-pop' : '',
       shakeId === item.id || (invalidHoverId === item.id && drag) ? 'shake' : '',
-    ].filter(Boolean).join(' ');
+    ]
+      .filter(Boolean)
+      .join(' ');
 
     return (
       <div
@@ -349,7 +416,11 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
           <>
             <Thumb fileId={item.fileId} backend={backend} className="thumb" />
             <div className="card-name">{item.name}</div>
-            {item.srcPath && <div className="src-chip" title={item.srcPath}>{item.srcPath}</div>}
+            {item.srcPath && (
+              <div className="src-chip" title={item.srcPath}>
+                {item.srcPath}
+              </div>
+            )}
           </>
         )}
         {item.kind === 'doc' && (
@@ -379,11 +450,20 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
               <input value={item.label} onChange={(e) => setLabel(item.id, e.target.value)} />
             </div>
             <div className="mini-grid">
-              {item.items.slice(0, 4).map((sub) => (
-                firstFileId(sub)
-                  ? <Thumb key={sub.id} fileId={firstFileId(sub)} backend={backend} className="mini-thumb" />
-                  : <div key={sub.id} className="mini-more">·</div>
-              ))}
+              {item.items.slice(0, 4).map((sub) =>
+                firstFileId(sub) ? (
+                  <Thumb
+                    key={sub.id}
+                    fileId={firstFileId(sub)}
+                    backend={backend}
+                    className="mini-thumb"
+                  />
+                ) : (
+                  <div key={sub.id} className="mini-more">
+                    ·
+                  </div>
+                ),
+              )}
               {item.items.length > 4 && <div className="mini-more">+{item.items.length - 4}</div>}
             </div>
             <div className="contents-note">
@@ -420,6 +500,10 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
       if (m) set.add(m[1]);
     }
     return [...set];
+    // `version` isn't read above, but `nodes` is a mutated-in-place ref
+    // whose identity never changes — version is the real invalidation
+    // signal when a file's collection changes (matches MetadataPanel.jsx).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, version, roots]);
 
   function openSave() {
@@ -443,6 +527,8 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
       if (n && n.name === `Archive Capture — ${destCollection.trim()}`) return n;
     }
     return null;
+    // Same invalidation-signal reasoning as loadedCollections above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roots, nodes, destCollection, version]);
 
   async function runSave() {
@@ -450,7 +536,8 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
     const log = (msg) => setProgress((p) => [...(p || []), msg]);
     try {
       const res = await saveFiling({
-        backend, nodes,
+        backend,
+        nodes,
         plan: items,
         destination: {
           collection: destCollection.trim(),
@@ -459,7 +546,9 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
         },
         onProgress: log,
       });
-      log(`Filed ${res.filed} document${res.filed === 1 ? '' : 's'} (${res.merged} merged). Refreshing…`);
+      log(
+        `Filed ${res.filed} document${res.filed === 1 ? '' : 's'} (${res.merged} merged). Refreshing…`,
+      );
       await onReload();
     } catch (err) {
       log(`❌ Save failed: ${err.message || err}`);
@@ -475,8 +564,10 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
   }
 
   const flyingStyle = flying && {
-    left: flying.x - 75, top: flying.y - 40,
-    transform: `scale(${flying.scale})`, opacity: flying.opacity,
+    left: flying.x - 75,
+    top: flying.y - 40,
+    transform: `scale(${flying.scale})`,
+    opacity: flying.opacity,
   };
   const dragStyle = drag && !flying && { left: drag.x - 75, top: drag.y - 40 };
   const ghostItem = drag ? items.find((i) => i.id === drag.itemId) : null;
@@ -486,8 +577,8 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
       <div className="filing-head">
         <h2>Filing: {scopeNode.name}</h2>
         <span className="hint">
-          Drag a page onto another to merge them into a document · documents merge into
-          Folders · Folders into Boxes. Click to multi-select. Nothing is written until you hit Save.
+          Drag a page onto another to merge them into a document · documents merge into Folders ·
+          Folders into Boxes. Click to multi-select. Nothing is written until you hit Save.
         </span>
       </div>
       <div className="filing-grid">
@@ -507,7 +598,9 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
             </div>
           ) : (
             <div className={`card ${ghostItem.kind}`}>
-              <div className="card-label">{ghostItem.kind === 'folder' ? '📂' : '📦'} {ghostItem.label}</div>
+              <div className="card-label">
+                {ghostItem.kind === 'folder' ? '📂' : '📦'} {ghostItem.label}
+              </div>
             </div>
           )}
         </div>
@@ -523,8 +616,12 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
           </button>
         )}
         <span className="spacer" />
-        <button className="btn" disabled={!undoStack.current.length} onClick={undo}>↩ Undo</button>
-        <button className="btn" onClick={rebuild}>Reset arrangement</button>
+        <button className="btn" disabled={!undoStack.current.length} onClick={undo}>
+          ↩ Undo
+        </button>
+        <button className="btn" onClick={rebuild}>
+          Reset arrangement
+        </button>
         <button className="btn primary" disabled={!savable} onClick={openSave}>
           {backend.kind === 'demo' ? 'Save (sample)' : 'Save to Drive'}
         </button>
@@ -543,35 +640,67 @@ export default function FilingMode({ backend, nodes, version, scopeId, roots, us
                 placeholder="e.g. Good Poems"
               />
               <datalist id="collections-list">
-                {loadedCollections.map((c) => <option key={c} value={c} />)}
+                {loadedCollections.map((c) => (
+                  <option key={c} value={c} />
+                ))}
               </datalist>
             </div>
             <div className="field">
               <label>Archive Name (optional)</label>
-              <input value={destArchive} onChange={(e) => setDestArchive(e.target.value)} placeholder="e.g. Five Forks" />
+              <input
+                value={destArchive}
+                onChange={(e) => setDestArchive(e.target.value)}
+                placeholder="e.g. Five Forks"
+              />
             </div>
             <div className="note">
-              {destRoot
-                ? <>Filing into the existing collection folder <b>{destRoot.name}</b>.</>
-                : <>A new Drive folder <b>Archive Capture — {destCollection.trim() || '…'}</b> will be created.</>}
-              {' '}Boxes and Folders become real nested folders; merged documents become single
-              multi-page PDFs named the same way the mobile app names them, tags/comments/OMG
-              flags carried over. Sources of merged documents go to the Drive trash.
-              {stats.files > 0 && <> {stats.files} loose file{stats.files === 1 ? ' stays' : 's stay'} where they are.</>}
+              {destRoot ? (
+                <>
+                  Filing into the existing collection folder <b>{destRoot.name}</b>.
+                </>
+              ) : (
+                <>
+                  A new Drive folder <b>Archive Capture — {destCollection.trim() || '…'}</b> will be
+                  created.
+                </>
+              )}{' '}
+              Boxes and Folders become real nested folders; merged documents become single
+              multi-page PDFs named the same way the mobile app names them, tags/comments/OMG flags
+              carried over. Sources of merged documents go to the Drive trash.
+              {stats.files > 0 && (
+                <>
+                  {' '}
+                  {stats.files} loose file{stats.files === 1 ? ' stays' : 's stay'} where they are.
+                </>
+              )}
             </div>
             {progress && (
               <div className="progress-log">
-                {progress.map((line, i) => <div key={i}>{line}</div>)}
+                {progress.map((line, i) => (
+                  <div key={i}>{line}</div>
+                ))}
               </div>
             )}
             <div className="modal-actions">
               {progress && progress.some((l) => l.startsWith('Filed')) ? (
-                <button className="btn primary" onClick={() => { setSaveOpen(false); setProgress(null); }}>
+                <button
+                  className="btn primary"
+                  onClick={() => {
+                    setSaveOpen(false);
+                    setProgress(null);
+                  }}
+                >
                   Done
                 </button>
               ) : (
                 <>
-                  <button className="btn" disabled={Boolean(progress)} onClick={() => setSaveOpen(false)}>Cancel</button>
+                  <button
+                    className="btn"
+                    disabled={Boolean(progress)}
+                    onClick={() => setSaveOpen(false)}
+                  >
+                    Cancel
+                  </button>
                   <button
                     className="btn primary"
                     disabled={Boolean(progress) || !destCollection.trim()}

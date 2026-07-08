@@ -42,5 +42,7 @@ export function playNope() {
     const now = ctx.currentTime;
     tone(220, now, 0.15, 0.06);
     tone(196, now + 0.09, 0.18, 0.06);
-  } catch { /* same */ }
+  } catch {
+    /* same */
+  }
 }

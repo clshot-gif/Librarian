@@ -40,9 +40,10 @@ export function parseProps(props = {}) {
     comments: commentLog || typedComments.map((c) => ({ ...c, user: '', ts: '' })),
     tagLog: parseJson(props.tag_log, []),
     omgLog: parseJson(props.omg_log, []),
-    notesPageIndex: props.notes_page_index !== undefined && props.notes_page_index !== ''
-      ? parseInt(props.notes_page_index, 10)
-      : null,
+    notesPageIndex:
+      props.notes_page_index !== undefined && props.notes_page_index !== ''
+        ? parseInt(props.notes_page_index, 10)
+        : null,
   };
 }
 

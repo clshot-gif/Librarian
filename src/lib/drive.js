@@ -17,7 +17,8 @@ function sleep(ms) {
 function isRetryable(status, bodyText) {
   if (status === 429) return true;
   if (status >= 500) return true;
-  if (status === 403 && /rateLimitExceeded|userRateLimitExceeded|backendError/.test(bodyText)) return true;
+  if (status === 403 && /rateLimitExceeded|userRateLimitExceeded|backendError/.test(bodyText))
+    return true;
   return false;
 }
 

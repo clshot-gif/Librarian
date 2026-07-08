@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { renderPage } from '../lib/pdfEngine.js';
 import { STROKE_STYLE } from '../lib/markupBake.js';
 
@@ -21,8 +21,16 @@ const MAX_ZOOM = 5;
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 
 export default function PdfViewer({
-  pdfjsDoc, pageIndex, numPages, pageLabel, special, tool, canDraw,
-  strokes, onAddStroke, onPageChange,
+  pdfjsDoc,
+  pageIndex,
+  numPages,
+  pageLabel,
+  special,
+  tool,
+  canDraw,
+  strokes,
+  onAddStroke,
+  onPageChange,
 }) {
   const outerRef = useRef(null);
   const canvasRef = useRef(null);
@@ -45,7 +53,10 @@ export default function PdfViewer({
       t = setTimeout(() => setFitKey((k) => k + 1), 150);
     });
     ro.observe(outer);
-    return () => { ro.disconnect(); clearTimeout(t); };
+    return () => {
+      ro.disconnect();
+      clearTimeout(t);
+    };
   }, []);
 
   useEffect(() => {
@@ -64,7 +75,9 @@ export default function PdfViewer({
       setDims({ widthPts: vp.width, heightPts: vp.height, wrapW, wrapH: wrapW / aspect });
       setTransform({ scale: 1, tx: 0, ty: 0 });
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [pdfjsDoc, pageIndex, fitKey]);
 
   // Wheel zoom needs a non-passive listener (preventDefault on scroll).
@@ -115,7 +128,9 @@ export default function PdfViewer({
       setCurrentStroke(null);
       const p = pinchState();
       gestureRef.current = {
-        type: 'pinch', startDist: p.dist, startMid: p,
+        type: 'pinch',
+        startDist: p.dist,
+        startMid: p,
         start: { ...transformRefLatest.current },
       };
       return;
@@ -128,7 +143,9 @@ export default function PdfViewer({
       setCurrentStroke(stroke);
     } else {
       gestureRef.current = {
-        type: 'pan', startX: e.clientX, startY: e.clientY,
+        type: 'pan',
+        startX: e.clientX,
+        startY: e.clientY,
         base: { ...transformRefLatest.current },
       };
     }
@@ -201,13 +218,22 @@ export default function PdfViewer({
   const zoneCompact = tool !== 'select';
 
   return (
-    <div className="viewer-outer" ref={outerRef} onDoubleClick={() => setTransform({ scale: 1, tx: 0, ty: 0 })}>
+    <div
+      className="viewer-outer"
+      ref={outerRef}
+      onDoubleClick={() => setTransform({ scale: 1, tx: 0, ty: 0 })}
+    >
       <div className={`page-chip ${special ? 'special' : ''}`}>{pageLabel}</div>
       <div
         className="viewer-transform"
-        style={{ transform: `translate(${transform.tx}px, ${transform.ty}px) scale(${transform.scale})` }}
+        style={{
+          transform: `translate(${transform.tx}px, ${transform.ty}px) scale(${transform.scale})`,
+        }}
       >
-        <div className="viewer-wrap" style={dims ? { width: dims.wrapW, height: dims.wrapH } : undefined}>
+        <div
+          className="viewer-wrap"
+          style={dims ? { width: dims.wrapW, height: dims.wrapH } : undefined}
+        >
           <canvas className="page-canvas" ref={canvasRef} />
           {dims && (
             <svg
@@ -252,13 +278,17 @@ export default function PdfViewer({
         disabled={pageIndex === 0}
         onClick={() => onPageChange(-1)}
         aria-label="Previous page"
-      >‹</button>
+      >
+        ‹
+      </button>
       <button
         className={`nav-zone right ${zoneCompact ? 'compact' : ''}`}
         disabled={pageIndex >= numPages - 1}
         onClick={() => onPageChange(1)}
         aria-label="Next page"
-      >›</button>
+      >
+        ›
+      </button>
     </div>
   );
 }

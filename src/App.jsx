@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import PickerScreen from './components/PickerScreen.jsx';
 import Explorer from './components/Explorer.jsx';
 import MarkingMode from './components/MarkingMode.jsx';
@@ -25,11 +25,14 @@ export default function App() {
 
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
-  const mutate = useCallback((fn) => {
-    fn(nodesRef.current);
-    refreshHighlights(nodesRef.current);
-    bump();
-  }, [bump]);
+  const mutate = useCallback(
+    (fn) => {
+      fn(nodesRef.current);
+      refreshHighlights(nodesRef.current);
+      bump();
+    },
+    [bump],
+  );
 
   async function loadRoots(backend, roots) {
     setStage('loading');
@@ -71,7 +74,11 @@ export default function App() {
   // "Switch folders" — any time, not just first launch. Drive mode reopens
   // the picker; sample mode goes back to the landing screen.
   async function switchFolders() {
-    if (markingDirtyRef.current && !window.confirm('You have unsaved changes. Switch folders anyway?')) return;
+    if (
+      markingDirtyRef.current &&
+      !window.confirm('You have unsaved changes. Switch folders anyway?')
+    )
+      return;
     const backend = backendRef.current;
     if (backend?.kind === 'drive') {
       try {
@@ -86,8 +93,11 @@ export default function App() {
   }
 
   function guardedOpenFile(id) {
-    if (id !== openFileId && markingDirtyRef.current &&
-        !window.confirm('You have unsaved changes on this document. Discard them?')) {
+    if (
+      id !== openFileId &&
+      markingDirtyRef.current &&
+      !window.confirm('You have unsaved changes on this document. Discard them?')
+    ) {
       return;
     }
     markingDirtyRef.current = false;
@@ -97,8 +107,11 @@ export default function App() {
 
   function guardedSetMode(next) {
     if (next === mode) return;
-    if (mode === 'marking' && markingDirtyRef.current &&
-        !window.confirm('You have unsaved changes on this document. Discard them?')) {
+    if (
+      mode === 'marking' &&
+      markingDirtyRef.current &&
+      !window.confirm('You have unsaved changes on this document. Discard them?')
+    ) {
       return;
     }
     markingDirtyRef.current = false;
@@ -153,7 +166,9 @@ export default function App() {
   return (
     <div style={{ height: '100%' }}>
       <header className="app-header">
-        <div className="brand">Archive <span>Review</span></div>
+        <div className="brand">
+          Archive <span>Review</span>
+        </div>
         <div className="mode-toggle">
           <button
             className={`mode-btn ${mode === 'marking' ? 'active' : ''}`}
@@ -169,7 +184,9 @@ export default function App() {
           </button>
         </div>
         <div className="header-right">
-          <button className="btn" onClick={switchFolders}>⇄ Change folders</button>
+          <button className="btn" onClick={switchFolders}>
+            ⇄ Change folders
+          </button>
           <div className="user-chip">
             {backend.kind === 'demo' ? 'Sample data · ' : ''}signed in as <b>{user.name}</b>
           </div>
@@ -179,7 +196,6 @@ export default function App() {
         <Explorer
           nodes={nodesRef.current}
           roots={rootsRef.current}
-          version={version}
           mode={mode}
           selectedId={mode === 'filing' ? scopeId : openFileId}
           onOpenFile={guardedOpenFile}
@@ -195,7 +211,9 @@ export default function App() {
             fileId={openFileId}
             user={user}
             mutate={mutate}
-            onDirtyChange={(d) => { markingDirtyRef.current = d; }}
+            onDirtyChange={(d) => {
+              markingDirtyRef.current = d;
+            }}
           />
         ) : (
           <FilingMode
@@ -204,7 +222,6 @@ export default function App() {
             version={version}
             scopeId={scopeId}
             roots={rootsRef.current}
-            user={user}
             onReload={() => loadRoots(backend, rootsRef.current)}
           />
         )}

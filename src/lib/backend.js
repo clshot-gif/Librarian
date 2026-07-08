@@ -11,7 +11,9 @@ export class DriveBackend {
     this.userInfo = user;
     this.kind = 'drive';
   }
-  user() { return this.userInfo; }
+  user() {
+    return this.userInfo;
+  }
   async listChildren(folderId) {
     const files = await drive.listChildren(this.token, folderId);
     return files.map((f) => ({
@@ -22,16 +24,30 @@ export class DriveBackend {
       properties: f.properties || {},
     }));
   }
-  getPdfBytes(fileId) { return drive.downloadFile(this.token, fileId); }
-  putPdfBytes(fileId, bytes) { return drive.updatePdfContent(this.token, fileId, bytes); }
-  setProperties(fileId, props) { return drive.updateProperties(this.token, fileId, props); }
-  rename(fileId, name) { return drive.renameFile(this.token, fileId, name); }
-  move(fileId, newParentId, oldParentId) { return drive.moveFile(this.token, fileId, newParentId, oldParentId); }
-  createFolder(name, parentId) { return drive.createFolder(this.token, name, parentId); }
+  getPdfBytes(fileId) {
+    return drive.downloadFile(this.token, fileId);
+  }
+  putPdfBytes(fileId, bytes) {
+    return drive.updatePdfContent(this.token, fileId, bytes);
+  }
+  setProperties(fileId, props) {
+    return drive.updateProperties(this.token, fileId, props);
+  }
+  rename(fileId, name) {
+    return drive.renameFile(this.token, fileId, name);
+  }
+  move(fileId, newParentId, oldParentId) {
+    return drive.moveFile(this.token, fileId, newParentId, oldParentId);
+  }
+  createFolder(name, parentId) {
+    return drive.createFolder(this.token, name, parentId);
+  }
   createFile({ name, parentId, properties, bytes }) {
     return drive.uploadPdf(this.token, { bytes, filename: name, folderId: parentId, properties });
   }
-  trash(fileId) { return drive.trashFile(this.token, fileId); }
+  trash(fileId) {
+    return drive.trashFile(this.token, fileId);
+  }
 }
 
 export class DemoBackend {
@@ -43,7 +59,9 @@ export class DemoBackend {
     this.bytesCache = new Map();
     this.nextId = 1;
   }
-  user() { return { name: 'Hannah', email: 'hannah@example.com' }; }
+  user() {
+    return { name: 'Hannah', email: 'hannah@example.com' };
+  }
   demoRoots() {
     return this.rootIds.map((id) => ({ id, name: this.nodes.get(id).name }));
   }
@@ -53,9 +71,7 @@ export class DemoBackend {
   async getPdfBytes(fileId) {
     if (this.bytesCache.has(fileId)) return this.bytesCache.get(fileId);
     const node = this.nodes.get(fileId);
-    const bytes = node.demoSpec
-      ? await buildDemoPdf(node.demoSpec)
-      : new Uint8Array();
+    const bytes = node.demoSpec ? await buildDemoPdf(node.demoSpec) : new Uint8Array();
     this.bytesCache.set(fileId, bytes);
     return bytes;
   }
@@ -71,8 +87,12 @@ export class DemoBackend {
       else node.properties[k] = v;
     }
   }
-  async rename(fileId, name) { this.nodes.get(fileId).name = name; }
-  async move(fileId, newParentId) { this.nodes.get(fileId).parentId = newParentId; }
+  async rename(fileId, name) {
+    this.nodes.get(fileId).name = name;
+  }
+  async move(fileId, newParentId) {
+    this.nodes.get(fileId).parentId = newParentId;
+  }
   async createFolder(name, parentId) {
     const id = `demo-new-${this.nextId++}`;
     this.nodes.set(id, { id, name, isFolder: true, parentId, properties: {} });

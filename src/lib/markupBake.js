@@ -50,7 +50,11 @@ export async function bakeMarkup({ bytes, pdfjsDoc, strokesByPage, parsed }) {
     ctx.fillStyle = '#3d2e00';
     ctx.font = `bold ${12 * scale}px sans-serif`;
     ctx.textBaseline = 'middle';
-    ctx.fillText('MARKED-UP PAGE — clean original appended at end of this PDF', 10 * scale, bannerH / 2);
+    ctx.fillText(
+      'MARKED-UP PAGE — clean original appended at end of this PDF',
+      10 * scale,
+      bannerH / 2,
+    );
 
     const img = await doc.embedJpg(dataUrlToBytes(canvas.toDataURL('image/jpeg', 0.85)));
 

@@ -1,5 +1,10 @@
-import React, { useMemo, useState } from 'react';
-import { inlineCitation, bibliographyCitation, citationComplete, citationText } from '../lib/citation.js';
+import { useMemo, useState } from 'react';
+import {
+  inlineCitation,
+  bibliographyCitation,
+  citationComplete,
+  citationText,
+} from '../lib/citation.js';
 import { collectTagPools, suggestTags } from '../lib/tagStore.js';
 
 function CitationLine({ label, segs }) {
@@ -8,7 +13,10 @@ function CitationLine({ label, segs }) {
     <div>
       <div className="cite-label">
         {label}
-        <button className="copy-btn" onClick={() => navigator.clipboard?.writeText(citationText(segs))}>
+        <button
+          className="copy-btn"
+          onClick={() => navigator.clipboard?.writeText(citationText(segs))}
+        >
           copy
         </button>
         <span className={`cite-status ${ok ? 'ok' : 'incomplete'}`}>
@@ -17,7 +25,9 @@ function CitationLine({ label, segs }) {
       </div>
       <div className="cite-line">
         {segs.map((s, i) => (
-          <span key={i} className={`cite-seg ${s.missing ? 'missing' : ''}`}>{s.text}{' '}</span>
+          <span key={i} className={`cite-seg ${s.missing ? 'missing' : ''}`}>
+            {s.text}{' '}
+          </span>
         ))}
       </div>
     </div>
@@ -47,7 +57,9 @@ function TagInput({ draft, pools, onAdd, onRemove }) {
           return (
             <span key={tag} className="tag-chip" title={who ? `added by ${who}` : undefined}>
               {tag}
-              <button onClick={() => onRemove(tag)} aria-label={`remove ${tag}`}>✕</button>
+              <button onClick={() => onRemove(tag)} aria-label={`remove ${tag}`}>
+                ✕
+              </button>
             </span>
           );
         })}
@@ -56,12 +68,16 @@ function TagInput({ draft, pools, onAdd, onRemove }) {
             value={text}
             placeholder="+ add tag…"
             onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') commit(text); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commit(text);
+            }}
           />
           {suggestions.length > 0 && (
             <div className="tag-suggest">
               {suggestions.map((s) => (
-                <button key={s} onClick={() => commit(s)}>{s}</button>
+                <button key={s} onClick={() => commit(s)}>
+                  {s}
+                </button>
               ))}
             </div>
           )}
@@ -69,9 +85,13 @@ function TagInput({ draft, pools, onAdd, onRemove }) {
       </div>
       {collectionTags.filter((t) => !draft.tags.includes(t)).length > 0 && (
         <div className="tag-row">
-          {collectionTags.filter((t) => !draft.tags.includes(t)).map((t) => (
-            <button key={t} className="tag-chip ghost" onClick={() => onAdd(t)}>+ {t}</button>
-          ))}
+          {collectionTags
+            .filter((t) => !draft.tags.includes(t))
+            .map((t) => (
+              <button key={t} className="tag-chip ghost" onClick={() => onAdd(t)}>
+                + {t}
+              </button>
+            ))}
         </div>
       )}
     </>
@@ -79,8 +99,16 @@ function TagInput({ draft, pools, onAdd, onRemove }) {
 }
 
 export default function MetadataPanel({
-  draft, nodes, version, currentPage, user,
-  onField, onAddComment, onAddTag, onRemoveTag, onToggleOmg,
+  draft,
+  nodes,
+  version,
+  currentPage,
+  user,
+  onField,
+  onAddComment,
+  onAddTag,
+  onRemoveTag,
+  onToggleOmg,
 }) {
   const [commentText, setCommentText] = useState('');
   // Tag pools derive from what's actually on the loaded files (plus this
@@ -104,23 +132,43 @@ export default function MetadataPanel({
       <div className="fields-grid">
         <div className="field">
           <label>Archive Name</label>
-          <input value={draft.archiveName} onChange={(e) => onField('archiveName', e.target.value)} placeholder="e.g. Five Forks" />
+          <input
+            value={draft.archiveName}
+            onChange={(e) => onField('archiveName', e.target.value)}
+            placeholder="e.g. Five Forks"
+          />
         </div>
         <div className="field">
           <label>Collection</label>
-          <input value={draft.collection} onChange={(e) => onField('collection', e.target.value)} placeholder="e.g. Good Poems" />
+          <input
+            value={draft.collection}
+            onChange={(e) => onField('collection', e.target.value)}
+            placeholder="e.g. Good Poems"
+          />
         </div>
         <div className="field">
           <label>Box</label>
-          <input value={draft.box} onChange={(e) => onField('box', e.target.value)} placeholder="e.g. 3 or XIV" />
+          <input
+            value={draft.box}
+            onChange={(e) => onField('box', e.target.value)}
+            placeholder="e.g. 3 or XIV"
+          />
         </div>
         <div className="field">
           <label>Folder</label>
-          <input value={draft.folder} onChange={(e) => onField('folder', e.target.value)} placeholder="e.g. 2" />
+          <input
+            value={draft.folder}
+            onChange={(e) => onField('folder', e.target.value)}
+            placeholder="e.g. 2"
+          />
         </div>
         <div className="field" style={{ gridColumn: '1 / -1' }}>
           <label>File Title</label>
-          <input value={draft.title} onChange={(e) => onField('title', e.target.value)} placeholder="e.g. Letter re: county hearing, 12 Mar 1947" />
+          <input
+            value={draft.title}
+            onChange={(e) => onField('title', e.target.value)}
+            placeholder="e.g. Letter re: county hearing, 12 Mar 1947"
+          />
         </div>
       </div>
 
@@ -165,7 +213,10 @@ export default function MetadataPanel({
             <button
               className="btn"
               disabled={!commentText.trim()}
-              onClick={() => { onAddComment(commentText.trim()); setCommentText(''); }}
+              onClick={() => {
+                onAddComment(commentText.trim());
+                setCommentText('');
+              }}
             >
               Add
             </button>

@@ -30,7 +30,12 @@ export async function renderPage(doc, pageIndex, targetWidth, canvas) {
 // bake, which needs raw pixels, and by thumbnails).
 export async function renderPageToBitmap(doc, pageIndex, targetWidth) {
   const canvas = document.createElement('canvas');
-  const dims = await renderPage(doc, pageIndex, targetWidth / (window.devicePixelRatio || 1), canvas);
+  const dims = await renderPage(
+    doc,
+    pageIndex,
+    targetWidth / (window.devicePixelRatio || 1),
+    canvas,
+  );
   return { canvas, ...dims };
 }
 

@@ -14,7 +14,8 @@ const INK = rgb(0.22, 0.17, 0.12);
 function mulberry(seed) {
   let a = seed;
   return () => {
-    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
@@ -32,13 +33,22 @@ function drawContentPage(page, fonts, spec, rand) {
   page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: PAPER });
   // Slight tonal blotch so it reads as a photo of paper, not flat fill.
   page.drawEllipse({
-    x: 80 + rand() * 450, y: 120 + rand() * 550, xScale: 60 + rand() * 60, yScale: 30 + rand() * 40,
-    color: rgb(0.88, 0.83, 0.72), opacity: 0.5,
+    x: 80 + rand() * 450,
+    y: 120 + rand() * 550,
+    xScale: 60 + rand() * 60,
+    yScale: 30 + rand() * 40,
+    color: rgb(0.88, 0.83, 0.72),
+    opacity: 0.5,
   });
   const rotate = degrees((rand() - 0.5) * 1.6);
   if (spec.heading) {
     page.drawText(spec.heading, {
-      x: 70, y: PAGE_H - 90, size: 16, font: fonts.courierBold, color: INK, rotate,
+      x: 70,
+      y: PAGE_H - 90,
+      size: 16,
+      font: fonts.courierBold,
+      color: INK,
+      rotate,
     });
   }
   let y = PAGE_H - 130;
@@ -49,29 +59,53 @@ function drawContentPage(page, fonts, spec, rand) {
     const n = 6 + Math.floor(rand() * 5);
     for (let w = 0; w < n; w++) words.push(FILLER[(start + w) % FILLER.length]);
     page.drawText(words.join(' '), {
-      x: 70 + rand() * 8, y, size: 11, font: fonts.courier, color: INK, rotate,
+      x: 70 + rand() * 8,
+      y,
+      size: 11,
+      font: fonts.courier,
+      color: INK,
+      rotate,
       opacity: 0.75 + rand() * 0.25,
     });
     y -= 20 + rand() * 8;
   }
-  page.drawText(spec.footer || '', { x: 70, y: 60, size: 9, font: fonts.courier, color: INK, opacity: 0.6 });
+  page.drawText(spec.footer || '', {
+    x: 70,
+    y: 60,
+    size: 9,
+    font: fonts.courier,
+    color: INK,
+    opacity: 0.6,
+  });
 }
 
 function drawMarkupOn(page, rand) {
   // A highlighter bar and a pen circle, mimicking baked-in markup.
   page.drawRectangle({
-    x: 65, y: PAGE_H - 260 - rand() * 120, width: 300 + rand() * 120, height: 18,
-    color: rgb(1, 0.92, 0.23), opacity: 0.45,
+    x: 65,
+    y: PAGE_H - 260 - rand() * 120,
+    width: 300 + rand() * 120,
+    height: 18,
+    color: rgb(1, 0.92, 0.23),
+    opacity: 0.45,
   });
   page.drawEllipse({
-    x: 200 + rand() * 150, y: PAGE_H - 420 - rand() * 100, xScale: 90, yScale: 26,
-    borderColor: rgb(0.1, 0.1, 0.1), borderWidth: 2.4, opacity: 0,
+    x: 200 + rand() * 150,
+    y: PAGE_H - 420 - rand() * 100,
+    xScale: 90,
+    yScale: 26,
+    borderColor: rgb(0.1, 0.1, 0.1),
+    borderWidth: 2.4,
+    opacity: 0,
     borderOpacity: 0.9,
   });
   // The mobile app's warning banner convention.
   page.drawRectangle({ x: 0, y: PAGE_H - 34, width: PAGE_W, height: 34, color: rgb(1, 0.86, 0.2) });
   page.drawText('MARKED-UP PAGE — clean original appended at end of this PDF', {
-    x: 24, y: PAGE_H - 24, size: 11, color: rgb(0.25, 0.18, 0) ,
+    x: 24,
+    y: PAGE_H - 24,
+    size: 11,
+    color: rgb(0.25, 0.18, 0),
   });
 }
 
@@ -86,12 +120,22 @@ function wrapLines(text, maxChars) {
 }
 
 export function drawNotesEntries(page, font, fontBold, content) {
-  const { blocks = [], footerLines = [] } = Array.isArray(content) ? { blocks: [], footerLines: content } : content;
+  const { blocks = [], footerLines = [] } = Array.isArray(content)
+    ? { blocks: [], footerLines: content }
+    : content;
   page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(1, 1, 0.98) });
-  page.drawText('Notes', { x: 60, y: PAGE_H - 80, size: 22, font: fontBold, color: rgb(0.15, 0.15, 0.2) });
+  page.drawText('Notes', {
+    x: 60,
+    y: PAGE_H - 80,
+    size: 22,
+    font: fontBold,
+    color: rgb(0.15, 0.15, 0.2),
+  });
   page.drawLine({
-    start: { x: 60, y: PAGE_H - 92 }, end: { x: PAGE_W - 60, y: PAGE_H - 92 },
-    thickness: 1, color: rgb(0.7, 0.7, 0.75),
+    start: { x: 60, y: PAGE_H - 92 },
+    end: { x: PAGE_W - 60, y: PAGE_H - 92 },
+    thickness: 1,
+    color: rgb(0.7, 0.7, 0.75),
   });
   let y = PAGE_H - 128;
   const draw = (text, opts) => {
@@ -108,17 +152,26 @@ export function drawNotesEntries(page, font, fontBold, content) {
     draw(block.heading.toUpperCase(), { size: 11, font: fontBold, color: rgb(0.33, 0.33, 0.36) });
     y -= 2;
     for (const line of block.lines) {
-      if (!draw(line.text, {
-        size: 12, font: line.omg ? fontBold : font,
-        color: line.omg ? rgb(0.75, 0.22, 0.18) : rgb(0.13, 0.13, 0.16),
-      })) break;
+      if (
+        !draw(line.text, {
+          size: 12,
+          font: line.omg ? fontBold : font,
+          color: line.omg ? rgb(0.75, 0.22, 0.18) : rgb(0.13, 0.13, 0.16),
+        })
+      )
+        break;
     }
     y -= 14;
   }
 
   if (footerLines.length) {
     y -= 8;
-    page.drawLine({ start: { x: 60, y }, end: { x: PAGE_W - 60, y }, thickness: 1, color: rgb(0.85, 0.85, 0.87) });
+    page.drawLine({
+      start: { x: 60, y },
+      end: { x: PAGE_W - 60, y },
+      thickness: 1,
+      color: rgb(0.85, 0.85, 0.87),
+    });
     y -= 20;
     for (const line of footerLines) {
       if (!draw(line, { size: 12, font, color: rgb(0.13, 0.13, 0.16) })) break;
@@ -136,7 +189,6 @@ export async function buildDemoPdf(spec) {
     helv: await doc.embedFont(StandardFonts.Helvetica),
     helvBold: await doc.embedFont(StandardFonts.HelveticaBold),
   };
-  const rand = mulberry(spec.seed || 1);
   const marked = new Set(spec.markedPages || []);
 
   for (let i = 0; i < spec.pages.length; i++) {
@@ -148,7 +200,12 @@ export async function buildDemoPdf(spec) {
 
   if (!spec.skipNotesPage) {
     const notes = doc.addPage([PAGE_W, PAGE_H]);
-    drawNotesEntries(notes, fonts.helv, fonts.helvBold, spec.notesContent || { blocks: [], footerLines: [] });
+    drawNotesEntries(
+      notes,
+      fonts.helv,
+      fonts.helvBold,
+      spec.notesContent || { blocks: [], footerLines: [] },
+    );
   }
 
   for (const i of marked) {

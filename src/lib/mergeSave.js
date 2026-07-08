@@ -14,11 +14,21 @@ import { rebuildNotesPage } from './notesPage.js';
 export async function mergeFiles(backend, nodes, fileIds, title) {
   const out = await PDFDocument.create();
   const combined = {
-    box: '', folder: '', collection: '', archiveName: '',
+    box: '',
+    folder: '',
+    collection: '',
+    archiveName: '',
     title: title || '',
-    tags: [], important: false, hasMarkup: false,
-    capturedAt: '', pageCount: 0,
-    omgPages: [], unmarkedBackupPages: [], comments: [], tagLog: [], omgLog: [],
+    tags: [],
+    important: false,
+    hasMarkup: false,
+    capturedAt: '',
+    pageCount: 0,
+    omgPages: [],
+    unmarkedBackupPages: [],
+    comments: [],
+    tagLog: [],
+    omgLog: [],
     notesPageIndex: null,
   };
   const tagSet = new Set();
@@ -137,12 +147,19 @@ export async function saveFiling({ backend, nodes, plan, destination, onProgress
         const node = nodes.get(fid);
         const parsed = {
           ...node.parsed,
-          box: unit.boxLabel, folder: unit.folderLabel,
-          collection, archiveName, title: title || node.parsed.title,
+          box: unit.boxLabel,
+          folder: unit.folderLabel,
+          collection,
+          archiveName,
+          title: title || node.parsed.title,
         };
         const name = buildFileName({
-          archiveName, collection, box: unit.boxLabel, folder: unit.folderLabel,
-          number, omg: parsed.omgPages.length > 0,
+          archiveName,
+          collection,
+          box: unit.boxLabel,
+          folder: unit.folderLabel,
+          number,
+          omg: parsed.omgPages.length > 0,
         });
         say(`Filing ${name}…`);
         await backend.setProperties(fid, serializeProps(parsed));
@@ -161,12 +178,17 @@ export async function saveFiling({ backend, nodes, plan, destination, onProgress
         merged.parsed.notesPageIndex = withNotes.notesPageIndex;
 
         const name = buildFileName({
-          archiveName, collection, box: unit.boxLabel, folder: unit.folderLabel,
-          number, omg: merged.parsed.omgPages.length > 0,
+          archiveName,
+          collection,
+          box: unit.boxLabel,
+          folder: unit.folderLabel,
+          number,
+          omg: merged.parsed.omgPages.length > 0,
         });
         say(`Uploading ${name}…`);
         await backend.createFile({
-          name, parentId,
+          name,
+          parentId,
           properties: serializeProps(merged.parsed),
           bytes: withNotes.bytes,
         });

@@ -8,8 +8,13 @@ export async function loadCorpus(backend, roots, onProgress) {
   const nodes = new Map();
   for (const root of roots) {
     nodes.set(root.id, {
-      id: root.id, name: root.name, isFolder: true, parentId: null,
-      rootId: root.id, children: [], parsed: null,
+      id: root.id,
+      name: root.name,
+      isFolder: true,
+      parentId: null,
+      rootId: root.id,
+      children: [],
+      parsed: null,
     });
   }
   // Breadth-first walk; each level's folders are fetched in parallel.
@@ -22,8 +27,12 @@ export async function loadCorpus(backend, roots, onProgress) {
       const parent = nodes.get(fid);
       for (const child of batches[i]) {
         const node = {
-          id: child.id, name: child.name, isFolder: child.isFolder,
-          parentId: fid, rootId: parent.rootId, children: [],
+          id: child.id,
+          name: child.name,
+          isFolder: child.isFolder,
+          parentId: fid,
+          rootId: parent.rootId,
+          children: [],
           parsed: child.isFolder ? null : parseProps(child.properties),
         };
         nodes.set(node.id, node);
@@ -44,7 +53,8 @@ export function sortChildren(nodes) {
   for (const node of nodes.values()) {
     if (!node.isFolder) continue;
     node.children.sort((a, b) => {
-      const na = nodes.get(a); const nb = nodes.get(b);
+      const na = nodes.get(a);
+      const nb = nodes.get(b);
       if (na.isFolder !== nb.isFolder) return na.isFolder ? -1 : 1;
       return na.name.localeCompare(nb.name, undefined, { numeric: true });
     });

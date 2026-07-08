@@ -17,7 +17,10 @@ export function buildNotesContent(parsed) {
       lines.push({ text: `Comments: ${c.user ? `${c.user} — ` : ''}“${c.text}”`, omg: false });
     }
     if (parsed.omgPages.includes(i)) {
-      const who = parsed.omgLog.filter((e) => (e.page || 0) === i).map((e) => e.user).filter(Boolean);
+      const who = parsed.omgLog
+        .filter((e) => (e.page || 0) === i)
+        .map((e) => e.user)
+        .filter(Boolean);
       lines.push({ text: `OMG${who.length ? ` — ${who.join(', ')}` : ''}`, omg: true });
     }
     if (lines.length) blocks.push({ heading: `Page ${i + 1}`, lines });
@@ -25,10 +28,12 @@ export function buildNotesContent(parsed) {
 
   const footerLines = [];
   if (parsed.tags.length) {
-    const tagText = parsed.tags.map((tag) => {
-      const who = parsed.tagLog.find((e) => e.tag === tag)?.user;
-      return who ? `${tag} (${who})` : tag;
-    }).join(', ');
+    const tagText = parsed.tags
+      .map((tag) => {
+        const who = parsed.tagLog.find((e) => e.tag === tag)?.user;
+        return who ? `${tag} (${who})` : tag;
+      })
+      .join(', ');
     footerLines.push(`Tags: ${tagText}`);
   }
   if (parsed.box) footerLines.push(`Box: ${parsed.box}`);

@@ -15,7 +15,19 @@ function folder(name, parentId) {
 }
 
 // A filed (Shape 1) file: full convention filename + rich properties.
-function filedFile({ parentId, number, box, folderNum, pages, tags, comments, omgPages, marked, seed, title }) {
+function filedFile({
+  parentId,
+  number,
+  box,
+  folderNum,
+  pages,
+  tags,
+  comments,
+  omgPages,
+  marked,
+  seed,
+  title,
+}) {
   const collection = 'Good Poems';
   const archiveName = 'Five Forks';
   const omg = (omgPages || []).length > 0;
@@ -34,12 +46,19 @@ function filedFile({ parentId, number, box, folderNum, pages, tags, comments, om
     unmarkedBackupPages: marked || [],
     comments: comments || [],
     tagLog: (tags || []).map((t) => ({ tag: t, user: 'Hannah', ts: '2026-06-14T15:00:00.000Z' })),
-    omgLog: (omgPages || []).map((p) => ({ page: p, user: 'Hannah', ts: '2026-06-14T15:00:00.000Z' })),
+    omgLog: (omgPages || []).map((p) => ({
+      page: p,
+      user: 'Hannah',
+      ts: '2026-06-14T15:00:00.000Z',
+    })),
     notesPageIndex: pages, // notes page sits right after the content pages
   };
   const name = buildFileName({ archiveName, collection, box, folder: folderNum, number, omg });
   return {
-    id: nid(), name, isFolder: false, parentId,
+    id: nid(),
+    name,
+    isFolder: false,
+    parentId,
     properties: serializeProps(parsed),
     demoSpec: {
       seed,
@@ -56,14 +75,28 @@ function filedFile({ parentId, number, box, folderNum, pages, tags, comments, om
 // An unfiled (Shape 2) file: original filename, blank filing metadata.
 function unfiledFile({ parentId, name, capturedAt, seed, heading }) {
   const parsed = {
-    box: '', folder: '', collection: '', archiveName: '', title: '',
-    tags: [], important: false, hasMarkup: false,
-    capturedAt, pageCount: 1,
-    omgPages: [], unmarkedBackupPages: [], comments: [], tagLog: [], omgLog: [],
+    box: '',
+    folder: '',
+    collection: '',
+    archiveName: '',
+    title: '',
+    tags: [],
+    important: false,
+    hasMarkup: false,
+    capturedAt,
+    pageCount: 1,
+    omgPages: [],
+    unmarkedBackupPages: [],
+    comments: [],
+    tagLog: [],
+    omgLog: [],
     notesPageIndex: null,
   };
   return {
-    id: nid(), name, isFolder: false, parentId,
+    id: nid(),
+    name,
+    isFolder: false,
+    parentId,
     properties: serializeProps(parsed),
     demoSpec: {
       seed,
@@ -87,39 +120,124 @@ export function buildDemoCorpus() {
   nodes.push(root1, box3, b3f2, b3f3, box5, b5f1);
 
   nodes.push(
-    filedFile({ parentId: b3f2.id, number: 1, box: 3, folderNum: 2, pages: 1, seed: 11, tags: ['Letters'] }),
     filedFile({
-      parentId: b3f2.id, number: 2, box: 3, folderNum: 2, pages: 2, seed: 12,
+      parentId: b3f2.id,
+      number: 1,
+      box: 3,
+      folderNum: 2,
+      pages: 1,
+      seed: 11,
+      tags: ['Letters'],
+    }),
+    filedFile({
+      parentId: b3f2.id,
+      number: 2,
+      box: 3,
+      folderNum: 2,
+      pages: 2,
+      seed: 12,
       tags: ['Letters', 'Correspondence'],
-      comments: [{ page: 0, text: 'Water damage on left edge', user: 'Hannah', ts: '2026-06-14T15:22:00.000Z' }],
+      comments: [
+        {
+          page: 0,
+          text: 'Water damage on left edge',
+          user: 'Hannah',
+          ts: '2026-06-14T15:22:00.000Z',
+        },
+      ],
     }),
     filedFile({ parentId: b3f2.id, number: 3, box: 3, folderNum: 2, pages: 1, seed: 13 }),
     filedFile({
-      parentId: b3f2.id, number: 4, box: 3, folderNum: 2, pages: 3, seed: 14,
+      parentId: b3f2.id,
+      number: 4,
+      box: 3,
+      folderNum: 2,
+      pages: 3,
+      seed: 14,
       title: 'Letter re: county hearing',
       tags: ['Letters', 'Legal proceedings', '1940s', 'Union leadership'],
       comments: [
-        { page: 0, text: 'This contradicts the earlier letter about the hearing date', user: 'Hannah', ts: '2026-06-14T15:40:00.000Z' },
-        { page: 2, text: 'Signature matches the Box 5 affidavit', user: 'Justina', ts: '2026-06-20T11:05:00.000Z' },
+        {
+          page: 0,
+          text: 'This contradicts the earlier letter about the hearing date',
+          user: 'Hannah',
+          ts: '2026-06-14T15:40:00.000Z',
+        },
+        {
+          page: 2,
+          text: 'Signature matches the Box 5 affidavit',
+          user: 'Justina',
+          ts: '2026-06-20T11:05:00.000Z',
+        },
       ],
-      omgPages: [0], marked: [0],
+      omgPages: [0],
+      marked: [0],
     }),
-    filedFile({ parentId: b3f2.id, number: 5, box: 3, folderNum: 2, pages: 1, seed: 15, tags: ['Meeting minutes'] }),
     filedFile({
-      parentId: b3f2.id, number: 6, box: 3, folderNum: 2, pages: 1, seed: 16,
+      parentId: b3f2.id,
+      number: 5,
+      box: 3,
+      folderNum: 2,
+      pages: 1,
+      seed: 15,
+      tags: ['Meeting minutes'],
+    }),
+    filedFile({
+      parentId: b3f2.id,
+      number: 6,
+      box: 3,
+      folderNum: 2,
+      pages: 1,
+      seed: 16,
       tags: ['Press coverage'],
-      comments: [{ page: 0, text: 'Follow up: names the same organizer', user: 'Hannah', ts: '2026-06-14T16:02:00.000Z' }],
+      comments: [
+        {
+          page: 0,
+          text: 'Follow up: names the same organizer',
+          user: 'Hannah',
+          ts: '2026-06-14T16:02:00.000Z',
+        },
+      ],
       marked: [0],
     }),
     filedFile({ parentId: b3f3.id, number: 1, box: 3, folderNum: 3, pages: 1, seed: 21 }),
-    filedFile({ parentId: b3f3.id, number: 2, box: 3, folderNum: 3, pages: 1, seed: 22, tags: ['Personal papers'] }),
     filedFile({
-      parentId: b3f3.id, number: 3, box: 3, folderNum: 3, pages: 2, seed: 23,
-      tags: ['Photographs', '1940s'], omgPages: [1],
-      comments: [{ page: 1, text: 'Is this the same picket line as the Tribune photo?', user: 'Hannah', ts: '2026-06-15T10:12:00.000Z' }],
+      parentId: b3f3.id,
+      number: 2,
+      box: 3,
+      folderNum: 3,
+      pages: 1,
+      seed: 22,
+      tags: ['Personal papers'],
+    }),
+    filedFile({
+      parentId: b3f3.id,
+      number: 3,
+      box: 3,
+      folderNum: 3,
+      pages: 2,
+      seed: 23,
+      tags: ['Photographs', '1940s'],
+      omgPages: [1],
+      comments: [
+        {
+          page: 1,
+          text: 'Is this the same picket line as the Tribune photo?',
+          user: 'Hannah',
+          ts: '2026-06-15T10:12:00.000Z',
+        },
+      ],
     }),
     filedFile({ parentId: b3f3.id, number: 4, box: 3, folderNum: 3, pages: 1, seed: 24 }),
-    filedFile({ parentId: b5f1.id, number: 1, box: 5, folderNum: 1, pages: 1, seed: 31, tags: ['Legal proceedings'] }),
+    filedFile({
+      parentId: b5f1.id,
+      number: 1,
+      box: 5,
+      folderNum: 1,
+      pages: 1,
+      seed: 31,
+      tags: ['Legal proceedings'],
+    }),
     filedFile({ parentId: b5f1.id, number: 2, box: 5, folderNum: 1, pages: 1, seed: 32 }),
     filedFile({ parentId: b5f1.id, number: 3, box: 5, folderNum: 1, pages: 1, seed: 33 }),
   );
@@ -133,16 +251,76 @@ export function buildDemoCorpus() {
   nodes.push(root2, eliza, originals, ready, session1);
 
   nodes.push(
-    unfiledFile({ parentId: originals.id, name: 'Book.pdf', capturedAt: '2026-07-03T19:04:00.000Z', seed: 41, heading: 'Ledger excerpt' }),
-    unfiledFile({ parentId: originals.id, name: 'Dad.pdf', capturedAt: '2026-07-03T19:09:00.000Z', seed: 42, heading: 'Handwritten note' }),
-    unfiledFile({ parentId: originals.id, name: 'Book (2)_edited.pdf', capturedAt: '2026-07-03T19:15:00.000Z', seed: 43, heading: 'Ledger excerpt, verso' }),
-    unfiledFile({ parentId: ready.id, name: 'Book.pdf', capturedAt: '2026-07-03T20:30:00.000Z', seed: 44, heading: 'Ledger excerpt (retouched)' }),
-    unfiledFile({ parentId: ready.id, name: 'Dad.pdf', capturedAt: '2026-07-03T20:36:00.000Z', seed: 45, heading: 'Handwritten note (retouched)' }),
-    unfiledFile({ parentId: session1.id, name: 'IMG_4213.pdf', capturedAt: '2026-07-05T14:32:11.000Z', seed: 51, heading: 'Petition, page one' }),
-    unfiledFile({ parentId: session1.id, name: 'IMG_4214.pdf', capturedAt: '2026-07-05T14:33:02.000Z', seed: 52, heading: 'Petition, page two' }),
-    unfiledFile({ parentId: session1.id, name: 'IMG_4215.pdf', capturedAt: '2026-07-05T14:35:47.000Z', seed: 53, heading: 'Envelope, postmarked 1946' }),
-    unfiledFile({ parentId: session1.id, name: 'IMG_4216.pdf', capturedAt: '2026-07-05T14:41:20.000Z', seed: 54, heading: 'Telegram fragment' }),
-    unfiledFile({ parentId: session1.id, name: 'IMG_4217.pdf', capturedAt: '2026-07-05T14:44:05.000Z', seed: 55, heading: 'Telegram fragment, verso' }),
+    unfiledFile({
+      parentId: originals.id,
+      name: 'Book.pdf',
+      capturedAt: '2026-07-03T19:04:00.000Z',
+      seed: 41,
+      heading: 'Ledger excerpt',
+    }),
+    unfiledFile({
+      parentId: originals.id,
+      name: 'Dad.pdf',
+      capturedAt: '2026-07-03T19:09:00.000Z',
+      seed: 42,
+      heading: 'Handwritten note',
+    }),
+    unfiledFile({
+      parentId: originals.id,
+      name: 'Book (2)_edited.pdf',
+      capturedAt: '2026-07-03T19:15:00.000Z',
+      seed: 43,
+      heading: 'Ledger excerpt, verso',
+    }),
+    unfiledFile({
+      parentId: ready.id,
+      name: 'Book.pdf',
+      capturedAt: '2026-07-03T20:30:00.000Z',
+      seed: 44,
+      heading: 'Ledger excerpt (retouched)',
+    }),
+    unfiledFile({
+      parentId: ready.id,
+      name: 'Dad.pdf',
+      capturedAt: '2026-07-03T20:36:00.000Z',
+      seed: 45,
+      heading: 'Handwritten note (retouched)',
+    }),
+    unfiledFile({
+      parentId: session1.id,
+      name: 'IMG_4213.pdf',
+      capturedAt: '2026-07-05T14:32:11.000Z',
+      seed: 51,
+      heading: 'Petition, page one',
+    }),
+    unfiledFile({
+      parentId: session1.id,
+      name: 'IMG_4214.pdf',
+      capturedAt: '2026-07-05T14:33:02.000Z',
+      seed: 52,
+      heading: 'Petition, page two',
+    }),
+    unfiledFile({
+      parentId: session1.id,
+      name: 'IMG_4215.pdf',
+      capturedAt: '2026-07-05T14:35:47.000Z',
+      seed: 53,
+      heading: 'Envelope, postmarked 1946',
+    }),
+    unfiledFile({
+      parentId: session1.id,
+      name: 'IMG_4216.pdf',
+      capturedAt: '2026-07-05T14:41:20.000Z',
+      seed: 54,
+      heading: 'Telegram fragment',
+    }),
+    unfiledFile({
+      parentId: session1.id,
+      name: 'IMG_4217.pdf',
+      capturedAt: '2026-07-05T14:44:05.000Z',
+      seed: 55,
+      heading: 'Telegram fragment, verso',
+    }),
   );
 
   return { nodes, rootIds: [root1.id, root2.id] };

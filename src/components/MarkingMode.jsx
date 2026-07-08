@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import PdfViewer from './PdfViewer.jsx';
 import MetadataPanel from './MetadataPanel.jsx';
 import { openPdf, invalidateThumbnail } from '../lib/pdfEngine.js';
@@ -11,7 +11,8 @@ import { rememberTag } from '../lib/tagStore.js';
 // What kind of page is the viewer showing? Content pages are drawable;
 // the notes page and the clean-original backups are read-only.
 function pageInfo(i, d) {
-  if (i < d.pageCount) return { label: `Page ${i + 1} of ${d.pageCount}`, canDraw: true, special: false };
+  if (i < d.pageCount)
+    return { label: `Page ${i + 1} of ${d.pageCount}`, canDraw: true, special: false };
   if (d.notesPageIndex !== null && i === d.notesPageIndex) {
     return { label: 'Notes page', canDraw: false, special: true };
   }
@@ -19,11 +20,20 @@ function pageInfo(i, d) {
   const orig = d.unmarkedBackupPages[i - d.pageCount - notesShift];
   return {
     label: orig !== undefined ? `Clean original of page ${orig + 1}` : 'Extra page',
-    canDraw: false, special: true,
+    canDraw: false,
+    special: true,
   };
 }
 
-export default function MarkingMode({ backend, nodes, version, fileId, user, mutate, onDirtyChange }) {
+export default function MarkingMode({
+  backend,
+  nodes,
+  version,
+  fileId,
+  user,
+  mutate,
+  onDirtyChange,
+}) {
   const node = fileId ? nodes.get(fileId) : null;
   const [docState, setDocState] = useState(null); // {bytes, pdfjsDoc, numPages}
   const [pageIndex, setPageIndex] = useState(0);
@@ -35,7 +45,9 @@ export default function MarkingMode({ backend, nodes, version, fileId, user, mut
   const [loadError, setLoadError] = useState('');
   const notesChangedRef = useRef(false);
 
-  useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +58,10 @@ export default function MarkingMode({ backend, nodes, version, fileId, user, mut
         const bytes = await backend.getPdfBytes(fileId);
         const pdfjsDoc = await openPdf(bytes);
         opened = pdfjsDoc;
-        if (cancelled) { pdfjsDoc.destroy(); return; }
+        if (cancelled) {
+          pdfjsDoc.destroy();
+          return;
+        }
         setDocState({ bytes, pdfjsDoc, numPages: pdfjsDoc.numPages });
         setDraft(structuredClone(nodes.get(fileId).parsed));
         setPageIndex(0);
@@ -64,12 +79,11 @@ export default function MarkingMode({ backend, nodes, version, fileId, user, mut
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId]);
 
-  const info = useMemo(
-    () => (draft ? pageInfo(pageIndex, draft) : null),
-    [pageIndex, draft],
-  );
+  const info = useMemo(() => (draft ? pageInfo(pageIndex, draft) : null), [pageIndex, draft]);
 
-  function markDirty() { setDirty(true); }
+  function markDirty() {
+    setDirty(true);
+  }
 
   function setField(key, value) {
     setDraft((d) => ({ ...d, [key]: value }));
@@ -82,8 +96,10 @@ export default function MarkingMode({ backend, nodes, version, fileId, user, mut
 
   function addComment(text) {
     const entry = {
-      page: currentContentPage(), text,
-      user: user.name, ts: new Date().toISOString(),
+      page: currentContentPage(),
+      text,
+      user: user.name,
+      ts: new Date().toISOString(),
     };
     setDraft((d) => ({ ...d, comments: [...d.comments, entry] }));
     notesChangedRef.current = true;
@@ -160,7 +176,10 @@ export default function MarkingMode({ backend, nodes, version, fileId, user, mut
 
       if (hasStrokes) {
         const res = await bakeMarkup({
-          bytes, pdfjsDoc: docState.pdfjsDoc, strokesByPage, parsed: d,
+          bytes,
+          pdfjsDoc: docState.pdfjsDoc,
+          strokesByPage,
+          parsed: d,
         });
         bytes = res.bytes;
         d.unmarkedBackupPages = res.unmarkedBackupPages;
@@ -176,7 +195,9 @@ export default function MarkingMode({ backend, nodes, version, fileId, user, mut
       if (pdfChanged) await backend.putPdfBytes(fileId, bytes);
       await backend.setProperties(fileId, serializeProps(d));
 
-      mutate((n) => { n.get(fileId).parsed = d; });
+      mutate((n) => {
+        n.get(fileId).parsed = d;
+      });
       invalidateThumbnail(fileId);
 
       const newDoc = await openPdf(bytes);
@@ -208,12 +229,19 @@ export default function MarkingMode({ backend, nodes, version, fileId, user, mut
     );
   }
   if (loadError) {
-    return <div className="marking-main"><div className="empty-state">{loadError}</div></div>;
+    return (
+      <div className="marking-main">
+        <div className="empty-state">{loadError}</div>
+      </div>
+    );
   }
   if (!docState || !draft) {
     return (
       <div className="marking-main">
-        <div className="empty-state"><div className="spinner" /><div>Opening document…</div></div>
+        <div className="empty-state">
+          <div className="spinner" />
+          <div>Opening document…</div>
+        </div>
       </div>
     );
   }
@@ -223,7 +251,9 @@ export default function MarkingMode({ backend, nodes, version, fileId, user, mut
   return (
     <div className="marking-main">
       <div className="savebar">
-        <span className="doc-title" title={node.name}>{displayName(node.name, draft)}</span>
+        <span className="doc-title" title={node.name}>
+          {displayName(node.name, draft)}
+        </span>
         {dirty && <span className="dirty-dot" title="Unsaved changes" />}
         <span className="spacer" />
         <button className="btn primary" disabled={!dirty || saving} onClick={handleSave}>
@@ -232,15 +262,48 @@ export default function MarkingMode({ backend, nodes, version, fileId, user, mut
       </div>
 
       <div className="viewer-toolbar">
-        <button className={`tool-btn ${tool === 'select' ? 'active' : ''}`} onClick={() => setTool('select')}>✥ Pan</button>
-        <button className={`tool-btn ${tool === 'pen' ? 'active' : ''}`} disabled={!info.canDraw} onClick={() => setTool('pen')}>✏️ Pen</button>
-        <button className={`tool-btn ${tool === 'highlighter' ? 'active' : ''}`} disabled={!info.canDraw} onClick={() => setTool('highlighter')}>🖍️ Highlight</button>
-        <button className="tool-btn" disabled={!pageStrokes.length} onClick={undoStroke}>↩ Undo</button>
+        <button
+          className={`tool-btn ${tool === 'select' ? 'active' : ''}`}
+          onClick={() => setTool('select')}
+        >
+          ✥ Pan
+        </button>
+        <button
+          className={`tool-btn ${tool === 'pen' ? 'active' : ''}`}
+          disabled={!info.canDraw}
+          onClick={() => setTool('pen')}
+        >
+          ✏️ Pen
+        </button>
+        <button
+          className={`tool-btn ${tool === 'highlighter' ? 'active' : ''}`}
+          disabled={!info.canDraw}
+          onClick={() => setTool('highlighter')}
+        >
+          🖍️ Highlight
+        </button>
+        <button className="tool-btn" disabled={!pageStrokes.length} onClick={undoStroke}>
+          ↩ Undo
+        </button>
         <span className="toolbar-sep" />
-        <button className="tool-btn" disabled={pageIndex === 0} onClick={() => setPageIndex((p) => p - 1)}>‹ Prev</button>
-        <button className="tool-btn" disabled={pageIndex >= docState.numPages - 1} onClick={() => setPageIndex((p) => p + 1)}>Next ›</button>
+        <button
+          className="tool-btn"
+          disabled={pageIndex === 0}
+          onClick={() => setPageIndex((p) => p - 1)}
+        >
+          ‹ Prev
+        </button>
+        <button
+          className="tool-btn"
+          disabled={pageIndex >= docState.numPages - 1}
+          onClick={() => setPageIndex((p) => p + 1)}
+        >
+          Next ›
+        </button>
         <span style={{ color: 'var(--dim)', fontSize: 12.5, marginLeft: 4 }}>
-          {info.canDraw ? 'Draw with one finger/mouse · pinch or scroll to zoom · double-click resets' : 'Read-only page'}
+          {info.canDraw
+            ? 'Draw with one finger/mouse · pinch or scroll to zoom · double-click resets'
+            : 'Read-only page'}
         </span>
       </div>
 
@@ -254,7 +317,9 @@ export default function MarkingMode({ backend, nodes, version, fileId, user, mut
         canDraw={info.canDraw}
         strokes={pageStrokes}
         onAddStroke={addStroke}
-        onPageChange={(delta) => setPageIndex((p) => Math.max(0, Math.min(docState.numPages - 1, p + delta)))}
+        onPageChange={(delta) =>
+          setPageIndex((p) => Math.max(0, Math.min(docState.numPages - 1, p + delta)))
+        }
       />
 
       <MetadataPanel

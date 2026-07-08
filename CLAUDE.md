@@ -96,9 +96,12 @@ undo/reset, invalid-merge rejection, Save produced
 `Archive Capture — Good Poems/Folder 1/…000001-000003.pdf` with correct merged
 PDFs and metadata; explorer drag-move; switch-folders.
 
-**Not yet tested:** anything against real Drive (needs the Picker API key +
-a real sign-in). The Drive code paths are direct ports of the batch uploader's
-shipped calls plus standard PATCH endpoints, but expect a shakedown session.
+**Real Drive:** first sign-in attempt (2026-07-07 evening) hit a "Picker
+developer key invalid" error that a retry got past — see TASKS.md's "Known
+bug" section, not yet diagnosed. Once past that, Carter reached his real
+files, but the Filing Mode save flow doesn't match how he actually wants to
+file things — see TASKS.md's "In progress" section; a redesign is scoped
+there, not yet built (branch `filing-mode-redesign`).
 
 ## Where things are
 
@@ -112,6 +115,34 @@ shipped calls plus standard PATCH endpoints, but expect a shakedown session.
   derived from loaded files; the mobile app's AsyncStorage pools are
   unreachable from the web, so pools rebuild from what's actually on files)
 
+## Linting
+
+`npm run lint` (ESLint + Prettier check) / `npm run lint:fix` (auto-fix +
+format). `eslint.config.js` turns off `react-hooks/refs` deliberately —
+`App.jsx`/`FilingMode.jsx` keep the corpus tree in a ref (mutated in place,
+`version` state bumped to trigger re-renders) rather than `useState`, since
+cloning a multi-thousand-file Map on every edit would be real cost for no
+benefit. That rule assumes all ref reads during render are accidental
+(it's aimed at React Compiler codebases); here they're the point. A couple
+of `useMemo`s intentionally depend on `version` without reading it in the
+body, for the same reason — silenced inline with
+`eslint-disable-next-line react-hooks/exhaustive-deps` and a comment at each
+spot, not a blanket rule disable. Prettier is scoped to code only
+(`.prettierignore` excludes `*.md` — reformatting prose docs isn't the goal).
+
+Known, deliberately unaddressed: `npm audit` flags a moderate esbuild/Vite
+dev-server advisory that only clears via a Vite 5→8 major-version jump — not
+worth pulling into scope for a lint pass.
+
 ## Git
 
-Own repo (`main`), no remote yet. Same local identity as the sibling projects.
+Own repo, currently on branch `filing-mode-redesign` (created 2026-07-07 for
+the Filing Mode destination-folder rework — see TASKS.md). No remote yet.
+Same local identity as the sibling projects.
+
+**Multi-instance lesson learned:** running more than one Claude Code session
+against this folder tree at once caused real chaos on 2026-07-07 — duplicate
+`vite` dev servers fighting over port 5173 (pinned for both this tool and the
+batch uploader, for OAuth-origin reasons), including one from a completely
+separate checkout at `~/projects/PDF-dream`. Only run one session's dev
+server in this folder tree at a time.
