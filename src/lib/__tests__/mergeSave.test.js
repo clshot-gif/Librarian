@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { buildDocumentPdf, saveFiling } from '../mergeSave.js';
+import { parseProps } from '../metadata.js';
+import { buildModel } from '../filingModel.js';
 
 // Each source page gets a distinctive width so we can assert exactly which
 // pages (content, backups — and never the notes page) land in the output,
@@ -159,8 +161,8 @@ describe('saveFiling', () => {
         this.folders.push({ id, name, parentId });
         return Promise.resolve(id);
       },
-      createFile({ name, parentId }) {
-        this.created.push({ name, parentId });
+      createFile({ name, parentId, properties }) {
+        this.created.push({ name, parentId, properties });
         return Promise.resolve(`new-${this.created.length}`);
       },
       setProperties(fid, props) {
@@ -283,6 +285,68 @@ describe('saveFiling', () => {
       'Five Forks - Good Poems - 5 - 1 - 000001.pdf',
       'Five Forks - Good Poems - 5 - 1 - 000002.pdf',
     ]);
+  });
+
+  it('deliberate skips round-trip: save stamps skipped_levels, reload comes back flat', async () => {
+    const bytesA = await makeSource([601]);
+    const be = recordingBackend({ A: bytesA });
+    const corpus = new Map([
+      [
+        'A',
+        {
+          id: 'A',
+          name: 'loose.pdf',
+          parentId: 'somewhere',
+          parsed: parsedFor({ pageCount: 1 }),
+        },
+      ],
+    ]);
+    // A page filed straight onto the Collection — box and folder skipped.
+    const plan = {
+      units: [
+        {
+          archiveName: 'Five Forks',
+          collection: 'Good Poems',
+          box: '',
+          folder: '',
+          files: [
+            {
+              nodeId: 'n1',
+              title: '',
+              refs: [{ fileId: 'A', pageIndex: 0 }],
+              pristineFileId: null,
+            },
+          ],
+        },
+      ],
+      skipped: { unresolved: 0, loose: 0, unnamed: 0, noCollection: 0, shells: 0 },
+    };
+    await saveFiling({ backend: be, nodes: corpus, roots: [], plan });
+
+    expect(be.created).toHaveLength(1);
+    expect(be.created[0].properties.skipped_levels).toBe('box,folder');
+    expect(be.created[0].properties.box).toBe('');
+
+    // Reload the saved properties the way corpus loading would: the file
+    // must come back as a deliberate flat placement, not a `?` bucket.
+    const reloaded = new Map([
+      ['root', { id: 'root', name: 'Root', isFolder: true, parentId: null, children: ['S'] }],
+      [
+        'S',
+        {
+          id: 'S',
+          name: be.created[0].name,
+          isFolder: false,
+          parentId: 'root',
+          children: [],
+          parsed: parseProps(be.created[0].properties),
+        },
+      ],
+    ]);
+    const state = buildModel(reloaded, ['root']);
+    const file = Object.values(state.nodes).find((n) => n.source?.fileId === 'S');
+    expect(file.bucket).toBe(false);
+    expect(state.nodes[file.parentId].kind).toBe('collection');
   });
 
   it('keeps a source alive while any of its pages are still unplaced', async () => {

@@ -71,6 +71,23 @@ describe('buildModel placement rules', () => {
     },
     { id: 'boxonly', parsed: { collection: 'Good Poems', archiveName: 'Five Forks', box: '3' } },
     { id: 'collonly', parsed: { collection: 'Good Poems', archiveName: 'Five Forks' } },
+    {
+      id: 'flatcoll',
+      parsed: {
+        collection: 'Good Poems',
+        archiveName: 'Five Forks',
+        skippedLevels: ['box', 'folder'],
+      },
+    },
+    {
+      id: 'flatbox',
+      parsed: {
+        collection: 'Good Poems',
+        archiveName: 'Five Forks',
+        box: '3',
+        skippedLevels: ['folder'],
+      },
+    },
     { id: 'noarch', parsed: { collection: 'Solo', box: '1', folder: '1' } },
     { id: 'rawscan', parsed: {} },
     { id: 'multipage', parsed: { pageCount: 3 } },
@@ -98,6 +115,23 @@ describe('buildModel placement rules', () => {
     const file = find(state, (n) => n.source?.fileId === 'collonly');
     expect(file.bucket).toBe(true);
     expect(state.nodes[file.parentId].kind).toBe('collection');
+  });
+
+  it('skipped_levels marker reloads as deliberate flat placement, not a bucket', () => {
+    // Same blank box/folder as collonly/boxonly, but stamped by a previous
+    // Filing Mode save — must come back flat (skipped), not as `?` debts.
+    const flatColl = find(state, (n) => n.source?.fileId === 'flatcoll');
+    expect(flatColl.bucket).toBe(false);
+    expect(state.nodes[flatColl.parentId].kind).toBe('collection');
+    expect(ancestry(state, flatColl.id).map((c) => c.state)).toEqual([
+      'skipped',
+      'skipped',
+      'resolved',
+      'resolved',
+    ]);
+    const flatBox = find(state, (n) => n.source?.fileId === 'flatbox');
+    expect(flatBox.bucket).toBe(false);
+    expect(state.nodes[flatBox.parentId].kind).toBe('box');
   });
 
   it('filed-without-archive goes under the deliberate No-archive node', () => {

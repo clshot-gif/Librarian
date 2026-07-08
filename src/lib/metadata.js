@@ -44,6 +44,11 @@ export function parseProps(props = {}) {
       props.notes_page_index !== undefined && props.notes_page_index !== ''
         ? parseInt(props.notes_page_index, 10)
         : null,
+    // Levels left blank *on purpose* when Filing Mode saved this file (e.g.
+    // "box,folder" for a page filed straight into a Collection). Distinguishes
+    // a deliberate skip from "not known yet" on reload — absent on files the
+    // mobile app produced, which keeps their blank-means-unknown behavior.
+    skippedLevels: (props.skipped_levels || '').split(',').filter(Boolean),
   };
 }
 
@@ -68,6 +73,7 @@ export function serializeProps(parsed) {
     tag_log: JSON.stringify(parsed.tagLog),
     omg_log: JSON.stringify(parsed.omgLog),
     notes_page_index: parsed.notesPageIndex === null ? '' : String(parsed.notesPageIndex),
+    skipped_levels: (parsed.skippedLevels || []).join(','),
     is_comment: 'false',
     parent_id: '',
   };

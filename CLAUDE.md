@@ -68,6 +68,12 @@ This tool reads/writes the mobile app's `properties` schema unchanged, plus
 - `notes_page_index` — where the human-readable Notes page sits in the PDF.
   The Notes page (attributed comments/tags/OMG rendered as text) is rebuilt on
   every save, inserted after content pages, before backup pages.
+- `skipped_levels` — comma list (subset of `box,folder`) stamped by Filing
+  Mode saves when a level was left blank *on purpose* (deliberate skip, e.g. a
+  page filed straight into a Collection). On reload, marked blanks come back
+  as flat placements instead of `?`-bucket debts. Absent on mobile-app files,
+  so their blank-means-unknown behavior is unchanged. Never shown in the UI
+  (Carter's call, 2026-07-08: field exists for the tool, not for humans).
 
 Known constraint inherited from the schema: Drive property values cap at ~124
 bytes — long comment logs can exceed this. The mobile app has the same
@@ -130,9 +136,9 @@ Verification gotcha worth keeping: pdf.js `page.render()` with the default
 hidden tab — in the Claude-Preview browser (always hidden) every thumbnail
 hung forever, masquerading as a pdf.js bug. Offscreen bitmap rendering now
 uses `intent: 'print'` (immediate scheduling); the visible viewer keeps
-'display'. Known round-trip limitation, flagged for Carter: a deliberate
-skip saves fine but *reloads* as a `?` bucket — the Drive properties schema
-has no "blank on purpose" marker.
+'display'. The deliberate-skip round-trip gap found during this walk was
+closed the same day with the `skipped_levels` property (see Schema
+additions) — verified live: flat save reloads flat, not as a `?` bucket.
 
 ## Where things are
 

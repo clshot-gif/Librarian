@@ -193,11 +193,13 @@ export function buildModel(corpusNodes, scopeIds) {
           parentId = ensureChild(state, box.id, 'folder', p.folder).id;
         } else {
           parentId = box.id;
-          bucket = true;
+          // skipped_levels marks blanks Filing Mode left on purpose — those
+          // reload as deliberate flat placements, not `?`-bucket debts.
+          bucket = !p.skippedLevels?.includes('folder');
         }
       } else {
         parentId = coll.id;
-        bucket = true;
+        bucket = !p.skippedLevels?.includes('box');
       }
     }
     addNode(state, {

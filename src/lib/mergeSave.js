@@ -38,6 +38,7 @@ export async function buildDocumentPdf(backend, nodes, refs, title) {
     tagLog: [],
     omgLog: [],
     notesPageIndex: null,
+    skippedLevels: [],
   };
 
   // Load each source once, however many of its pages are referenced.
@@ -211,6 +212,10 @@ export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
 
   for (const unit of plan.units) {
     const { archiveName, collection, box, folder } = unit;
+    // Save plans only contain determinate placements, so a blank box/folder
+    // here is a deliberate skip — stamp it so reload doesn't mistake it for
+    // "not known yet" and demote the file to a `?` bucket.
+    const skippedLevels = [!box && 'box', !folder && 'folder'].filter(Boolean);
     // Folders are only created once a file actually needs writing — a unit
     // whose every file turns out unchanged must not touch Drive at all.
     let destIdCached = null;
@@ -231,7 +236,8 @@ export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
           p.folder === folder &&
           p.collection === collection &&
           p.archiveName === archiveName &&
-          (p.title || '') === (entry.title || '');
+          (p.title || '') === (entry.title || '') &&
+          (p.skippedLevels || []).join(',') === skippedLevels.join(',');
         if (unchanged) {
           results.unchanged++;
           keptInPlace.add(entry.pristineFileId);
@@ -240,7 +246,15 @@ export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
         // Placement or title changed but the PDF itself didn't: update in
         // place (props + rename + move), no re-upload.
         const destId = await destFor();
-        const parsed = { ...p, box, folder, collection, archiveName, title: entry.title };
+        const parsed = {
+          ...p,
+          box,
+          folder,
+          collection,
+          archiveName,
+          title: entry.title,
+          skippedLevels,
+        };
         const name = buildFileName({
           archiveName,
           collection,
@@ -268,6 +282,7 @@ export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
       built.parsed.folder = folder;
       built.parsed.collection = collection;
       built.parsed.archiveName = archiveName;
+      built.parsed.skippedLevels = skippedLevels;
 
       const withNotes = await rebuildNotesPage(built.bytes, built.parsed);
       built.parsed.notesPageIndex = withNotes.notesPageIndex;
