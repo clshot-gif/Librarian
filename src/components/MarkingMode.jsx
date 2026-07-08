@@ -6,6 +6,7 @@ import { bakeMarkup } from '../lib/markupBake.js';
 import { rebuildNotesPage } from '../lib/notesPage.js';
 import { serializeProps } from '../lib/metadata.js';
 import { displayName } from '../lib/naming.js';
+import { refileFile } from '../lib/refile.js';
 import { rememberTag } from '../lib/tagStore.js';
 
 // What kind of page is the viewer showing? Content pages are drawable;
@@ -28,6 +29,7 @@ function pageInfo(i, d) {
 export default function MarkingMode({
   backend,
   nodes,
+  roots,
   version,
   fileId,
   user,
@@ -193,11 +195,28 @@ export default function MarkingMode({
         pdfChanged = true;
       }
       if (pdfChanged) await backend.putPdfBytes(fileId, bytes);
-      await backend.setProperties(fileId, serializeProps(d));
 
-      mutate((n) => {
-        n.get(fileId).parsed = d;
-      });
+      // If placement (or title) changed, re-file: move the physical file,
+      // rename it, and write properties — all in sync. Otherwise just persist
+      // the properties in place. Requires a collection to file under; without
+      // one the file stays put and only its metadata is saved.
+      const orig = node.parsed || {};
+      const placementChanged =
+        (orig.archiveName || '') !== (d.archiveName || '') ||
+        (orig.collection || '') !== (d.collection || '') ||
+        (orig.box || '') !== (d.box || '') ||
+        (orig.folder || '') !== (d.folder || '') ||
+        (orig.title || '') !== (d.title || '');
+      if (placementChanged && (d.collection || '').trim()) {
+        await refileFile({ backend, nodes, roots, fileId, parsed: d });
+        // refileFile already mutated the tree in place; refresh + re-render.
+        mutate(() => {});
+      } else {
+        await backend.setProperties(fileId, serializeProps(d));
+        mutate((n) => {
+          n.get(fileId).parsed = d;
+        });
+      }
       invalidateThumbnail(fileId);
 
       const newDoc = await openPdf(bytes);

@@ -25,13 +25,19 @@ function sanitize(value) {
 // mobile app's MAX_FILENAME_LENGTH.
 const MAX_FILENAME_LENGTH = 100;
 
-export function buildFileName({ archiveName, collection, box, folder, number, omg }) {
+// The final segment is the human title when the file has one, otherwise the
+// zero-padded auto-counter. Carter's call (2026-07-08): a title he typed
+// should stand in for the number — "title should always replace the number."
+// This is a deliberate extension of the mobile app's number-only convention;
+// both coexist fine since everything downstream reads the `title` *property*,
+// not the filename. A blank/whitespace title falls back to the number.
+export function buildFileName({ archiveName, collection, box, folder, number, title, omg }) {
   const parts = [];
   if (archiveName) parts.push(sanitize(archiveName));
   if (collection) parts.push(sanitize(collection));
   if (box) parts.push(sanitize(box));
   if (folder) parts.push(sanitize(folder));
-  parts.push(String(number).padStart(6, '0'));
+  parts.push(title && String(title).trim() ? sanitize(title) : String(number).padStart(6, '0'));
   const joined = parts.join(' - ');
   const base = joined.length > MAX_FILENAME_LENGTH ? joined.slice(0, MAX_FILENAME_LENGTH) : joined;
   return (omg ? `${base} - OMG` : base) + '.pdf';

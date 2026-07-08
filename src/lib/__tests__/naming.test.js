@@ -35,6 +35,29 @@ describe('buildFileName', () => {
   it('strips filesystem-invalid characters like the mobile app', () => {
     expect(buildFileName({ collection: 'a/b:c*d?"<>|', number: 1 })).toBe('abcd - 000001.pdf');
   });
+
+  it('uses the title in place of the number when the file has one', () => {
+    expect(
+      buildFileName({
+        archiveName: 'Five Forks',
+        collection: 'Good Poems',
+        box: '3',
+        folder: '2',
+        number: 4,
+        title: 'Letter re: hearing',
+        omg: true,
+      }),
+    ).toBe('Five Forks - Good Poems - 3 - 2 - Letter re hearing - OMG.pdf');
+  });
+
+  it('falls back to the number for a blank/whitespace title', () => {
+    expect(buildFileName({ collection: 'Good Poems', number: 1, title: '   ' })).toBe(
+      'Good Poems - 000001.pdf',
+    );
+    expect(buildFileName({ collection: 'Good Poems', number: 1, title: '' })).toBe(
+      'Good Poems - 000001.pdf',
+    );
+  });
 });
 
 describe('nextNumber / displayName', () => {

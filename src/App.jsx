@@ -207,6 +207,7 @@ export default function App() {
             key={openFileId || 'none'}
             backend={backend}
             nodes={nodesRef.current}
+            roots={rootsRef.current}
             version={version}
             fileId={openFileId}
             user={user}

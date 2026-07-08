@@ -280,10 +280,11 @@ describe('saveFiling', () => {
       'Box 5',
       'Folder 1',
     ]);
-    // Filenames follow the bare-value convention with sequential numbers.
+    // A titled document uses its title in place of the number (and doesn't
+    // consume a counter value); the untitled one takes the next number.
     expect(be.created.map((c) => c.name)).toEqual([
+      'Five Forks - Good Poems - 5 - 1 - Part one.pdf',
       'Five Forks - Good Poems - 5 - 1 - 000001.pdf',
-      'Five Forks - Good Poems - 5 - 1 - 000002.pdf',
     ]);
   });
 

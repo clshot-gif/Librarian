@@ -260,7 +260,8 @@ export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
           collection,
           box,
           folder,
-          number: await getNumber(destId),
+          title: entry.title,
+          number: (entry.title || '').trim() ? 0 : await getNumber(destId),
           omg: parsed.omgPages.length > 0,
         });
         say(`Filing ${name}…`);
@@ -293,7 +294,8 @@ export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
         collection,
         box,
         folder,
-        number: await getNumber(destId),
+        title: entry.title,
+        number: (entry.title || '').trim() ? 0 : await getNumber(destId),
         omg: built.parsed.omgPages.length > 0,
       });
       say(`Uploading ${name}…`);
