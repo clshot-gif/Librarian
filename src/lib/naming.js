@@ -1,23 +1,40 @@
-// The mobile app's filename convention (fixed 2026-07-07):
-//   Archive <name> - Collection <name> - Box <n> - Folder <n> - Number[ - OMG].pdf
+// The mobile app's filename convention — mirror of buildFileBaseName in
+// archive-capture/src/screens/ConfirmationScreen.js, which is the source of
+// truth (fixed 2026-07-08 after a real production incident; see the cap note
+// below). Bare values only, no "Archive"/"Collection"/"Box"/"Folder" label
+// words in the filename itself (Drive *subfolder* names do get "Box "/
+// "Folder " prefixes — that's separate):
+//   Archive - Collection - Box - Folder - Number[ - OMG].pdf
 // Missing fields are skipped entirely, never left as empty placeholders.
 
+// Strip characters that are invalid in file/folder names if this Drive
+// content is ever mirrored onto a real filesystem (same set the mobile app
+// strips).
 function sanitize(value) {
-  // Drive filenames tolerate most characters; strip slashes so a name can
-  // never read as a path, and collapse the separator sequence " - " which
-  // would break parsing.
-  return String(value).replace(/[/\\]/g, '-').replace(/ - /g, ' – ').trim();
+  return String(value)
+    .trim()
+    .replace(/[\\/:*?"<>|]/g, '');
 }
+
+// Confirmed real incident (2026-07-08, mobile app): a long Collection name
+// pushed the combined filename long enough that Drive's file upload silently
+// and permanently failed — folders kept getting created fine (separate,
+// short-named call), so it looked exactly like a network/sync bug. The
+// filename is used as Drive's own `name` field and as a local file path, so
+// it must be capped at the source. Same cap, same place in the logic, as the
+// mobile app's MAX_FILENAME_LENGTH.
+const MAX_FILENAME_LENGTH = 100;
 
 export function buildFileName({ archiveName, collection, box, folder, number, omg }) {
   const parts = [];
-  if (archiveName) parts.push(`Archive ${sanitize(archiveName)}`);
-  if (collection) parts.push(`Collection ${sanitize(collection)}`);
-  if (box) parts.push(`Box ${sanitize(box)}`);
-  if (folder) parts.push(`Folder ${sanitize(folder)}`);
+  if (archiveName) parts.push(sanitize(archiveName));
+  if (collection) parts.push(sanitize(collection));
+  if (box) parts.push(sanitize(box));
+  if (folder) parts.push(sanitize(folder));
   parts.push(String(number).padStart(6, '0'));
-  if (omg) parts.push('OMG');
-  return parts.join(' - ') + '.pdf';
+  const joined = parts.join(' - ');
+  const base = joined.length > MAX_FILENAME_LENGTH ? joined.slice(0, MAX_FILENAME_LENGTH) : joined;
+  return (omg ? `${base} - OMG` : base) + '.pdf';
 }
 
 // The zero-padded number is a per-Box+Folder counter. Given the filenames
