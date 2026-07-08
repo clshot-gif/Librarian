@@ -27,13 +27,14 @@ function filedFile({
   marked,
   seed,
   title,
+  headings,
 }) {
   const collection = 'Good Poems';
   const archiveName = 'Five Forks';
   const omg = (omgPages || []).length > 0;
   const parsed = {
-    box: String(box),
-    folder: String(folderNum),
+    box: box === '' ? '' : String(box),
+    folder: folderNum === '' ? '' : String(folderNum),
     collection,
     archiveName,
     title: title || '',
@@ -63,7 +64,7 @@ function filedFile({
     demoSpec: {
       seed,
       pages: Array.from({ length: pages }, (_, i) => ({
-        heading: i === 0 ? `County correspondence, no. ${number}` : undefined,
+        heading: headings ? headings[i] : i === 0 ? `County correspondence, no. ${number}` : undefined,
         footer: `${collection} — Box ${box}, Folder ${folderNum} — p.${i + 1}`,
       })),
       markedPages: marked || [],
@@ -240,6 +241,74 @@ export function buildDemoCorpus() {
     }),
     filedFile({ parentId: b5f1.id, number: 2, box: 5, folderNum: 1, pages: 1, seed: 32 }),
     filedFile({ parentId: b5f1.id, number: 3, box: 5, folderNum: 1, pages: 1, seed: 33 }),
+  );
+
+  // ── The lumped scan: one big multi-page PDF photographed in a hurry —
+  //    a whole folder's worth of loose photos captured as a single File.
+  //    This is the explode-to-raw → rebuild → re-file demo case, with
+  //    comments/OMG/markup spread across pages so the split has real
+  //    page-indexed metadata to carry correctly. ──────────────────────────
+  const b5f4 = folder('Folder 4', box5.id);
+  nodes.push(b5f4);
+  nodes.push(
+    filedFile({
+      parentId: b5f4.id,
+      number: 1,
+      box: 5,
+      folderNum: 4,
+      pages: 6,
+      seed: 61,
+      title: 'Photo stack (unseparated)',
+      tags: ['Photographs'],
+      headings: [
+        'Photo: picket line, north gate',
+        'Photo: picket line, reverse',
+        'Photo: office interior',
+        'Photo: office interior, annotated',
+        'Photo: group portrait',
+        'Photo: group portrait, names on back',
+      ],
+      comments: [
+        {
+          page: 1,
+          text: 'Same crowd as the Tribune clipping?',
+          user: 'Hannah',
+          ts: '2026-06-16T09:40:00.000Z',
+        },
+        {
+          page: 4,
+          text: 'Names listed on the verso — transcribe',
+          user: 'Justina',
+          ts: '2026-06-21T13:05:00.000Z',
+        },
+      ],
+      omgPages: [3],
+      marked: [2],
+    }),
+  );
+
+  // ── Partially-filed files: metadata half-entered on a fast archive day —
+  //    these land in `?` buckets, the "known where it belongs, not yet
+  //    placed" state. ─────────────────────────────────────────────────────
+  nodes.push(
+    filedFile({
+      parentId: box3.id,
+      number: 7,
+      box: 3,
+      folderNum: '',
+      pages: 1,
+      seed: 71,
+      tags: ['Letters'],
+    }),
+    filedFile({
+      parentId: root1.id,
+      number: 8,
+      box: '',
+      folderNum: '',
+      pages: 1,
+      seed: 72,
+      tags: ['Receipts'],
+    }),
   );
 
   // ── Shape 2: Unprocessed batch-upload tree ────────────────────────────

@@ -1,0 +1,28 @@
+{
+  "_status": "SKELETON — collection-level fields are real and verified via web search; the box/folder inventory below is empty because archives.lib.duke.edu blocks automated fetching (Anubis bot-detection challenge, confirmed on two separate fetch attempts plus a disconnected browser-automation attempt on 2026-07-08). A human browsing the finding_aid_url normally is not blocked. Paste the real box/folder listing into `boxes` before treating this as demo data, or leave it empty and build ingestion against the collection-level fields alone.",
+  "repository": {
+    "name": "David M. Rubenstein Rare Book & Manuscript Library, Duke University",
+    "unit": "Sallie Bingham Center for Women's History & Culture"
+  },
+  "collection": {
+    "title": "Feminist Women's Health Center Records",
+    "dates": "1973-2003",
+    "finding_aid_url": "https://archives.lib.duke.edu/catalog/fwhcrecords",
+    "summary": "Records of a feminist women's health center providing gynecological, contraceptive, and abortion care; includes clinical, educational, and administrative material. Selected by this project as the seed collection because it is the one collection in Duke's reproductive-health holdings whose own description explicitly references birth control and contraception access, rather than abortion-rights advocacy alone.",
+    "related_collections_considered": [
+      {
+        "title": "Reproductive Rights National Network records",
+        "dates": "1970-1982",
+        "finding_aid_url": "https://archives.lib.duke.edu/catalog/r2n2",
+        "note": "advocacy-organization newsletters, not a health center's own operational records; less likely fit for a birth-control-history research focus"
+      },
+      {
+        "title": "William C. Holgate papers",
+        "dates": "1798-1911",
+        "finding_aid_url": "https://archives.lib.duke.edu/catalog/holgatewilliam",
+        "note": "19th-century family papers referencing birth control; wrong era for a likely research focus, listed for completeness"
+      }
+    ]
+  },
+  "boxes": []
+}

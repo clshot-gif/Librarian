@@ -41,24 +41,29 @@ export async function renderPageToBitmap(doc, pageIndex, targetWidth) {
 
 const thumbCache = new Map();
 
-// Small first-page preview for Filing Mode cards. Cached per file id;
+// Small page preview for Filing Mode cards (first page by default; exploded
+// raw-page cards pass their own page index). Cached per file id + page;
 // concurrency-limited so a big folder doesn't spawn 200 workers at once.
 let thumbQueue = Promise.resolve();
-export function renderThumbnail(fileId, getBytes, width = 150) {
-  if (thumbCache.has(fileId)) return thumbCache.get(fileId);
+export function renderThumbnail(fileId, getBytes, width = 150, pageIndex = 0) {
+  const key = `${fileId}#${pageIndex}`;
+  if (thumbCache.has(key)) return thumbCache.get(key);
   const job = thumbQueue.then(async () => {
     const bytes = await getBytes();
     const doc = await openPdf(bytes);
-    const { canvas } = await renderPageToBitmap(doc, 0, width);
+    const page = Math.min(pageIndex, doc.numPages - 1);
+    const { canvas } = await renderPageToBitmap(doc, page, width);
     const url = canvas.toDataURL('image/jpeg', 0.7);
     doc.destroy();
     return url;
   });
   thumbQueue = job.catch(() => {});
-  thumbCache.set(fileId, job);
+  thumbCache.set(key, job);
   return job;
 }
 
 export function invalidateThumbnail(fileId) {
-  thumbCache.delete(fileId);
+  for (const key of thumbCache.keys()) {
+    if (key === fileId || key.startsWith(`${fileId}#`)) thumbCache.delete(key);
+  }
 }
