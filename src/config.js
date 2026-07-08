@@ -27,7 +27,7 @@ export const OAUTH_SCOPES = [
 //   4. Paste the key below. Like the client ID it is a public identifier,
 //      not a secret — safe to commit once restricted.
 // Until this is filled in, the app still fully works in Sample mode.
-export const PICKER_API_KEY = '';
+export const PICKER_API_KEY = 'AIzaSyBRhZIR9hdsQ6RkzQV9s0d2kdIgWJAFTTc';
 
 // The Cloud project number — the Picker uses it to tell Drive which "app"
 // is being granted drive.file access to the picked folders.
