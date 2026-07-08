@@ -95,6 +95,17 @@ Not fixed — flagged for whenever Drive-mode work resumes.
   PDF-dream`. Worth being deliberate about only running one session's dev
   server at a time in this folder tree going forward.
 
-Pick up next: the Filing Mode redesign conversation (destination-folder
-picking, Categorized structure, using the merge-title) — that's the reason
-for the new branch.
+## Session 2026-07-08 — Filing Mode redesign BUILT, verification pending
+The full redesign (six-level hierarchy, ?-buckets, deliberate skip, explode/
+rebuild, per-level wins, finding-aid seeding, naming-convention fix with the
+100-char cap) is built, tested (33 green), lint-clean, and committed on this
+branch (through f5eb905). In-browser click-through is NOT done — pdf.js
+rendering hangs in the Claude-Preview browser specifically (likely
+environmental). **Read `../handoff-filing-mode-redesign-CONTINUE.md` first**
+— it has the exact pickup point, verification checklist, and the decisions
+that need Carter's sign-off (kept `Archive Capture — <Collection>` roots;
+the "Categorized" question from items 1–2 above is still open).
+
+Pick up next: verify in a real browser per the CONTINUE handoff, remove the
+temporary [thumb] debug lines in pdfEngine.js, walk the checklist, update
+CLAUDE.md/TASKS.md, commit.
