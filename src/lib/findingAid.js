@@ -19,6 +19,18 @@
 // source site blocks automated retrieval); ingestion degrades gracefully to
 // collection-level slots alone.
 
+// A manifest may describe one collection (the original single-object shape,
+// e.g. the demo seed) or several — an archive trip commonly pulls boxes from
+// collections held in different places. `{ "collections": [ <single>, … ] }`
+// is the multi shape; anything else is treated as one collection. Always
+// returns an array of parsed aids so callers have a single code path.
+export function parseManifest(json) {
+  if (json && Array.isArray(json.collections)) {
+    return json.collections.map(parseFindingAid);
+  }
+  return [parseFindingAid(json)];
+}
+
 export function parseFindingAid(json) {
   if (!json || typeof json !== 'object' || !json.collection?.title) {
     throw new Error('Not a finding-aid JSON: missing collection.title');

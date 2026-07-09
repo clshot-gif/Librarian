@@ -8,3 +8,12 @@ client_secret*.json
 *service-account*.json
 .DS_Store
 .claude/settings.local.json
+
+# Personal / researcher data — never commit to this public repo.
+# Aeon request exports, raw finding aids, and derived manifests live in
+# Drive, not here. (The demo seed in src/lib/findingAidSeed.json is fine —
+# it's public archival description.)
+*.Identifier
+Aeon*.pdf
+*.request.pdf
+*manifest*.json

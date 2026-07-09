@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseFindingAid } from '../findingAid.js';
+import { parseFindingAid, parseManifest } from '../findingAid.js';
 import seed from '../findingAidSeed.json';
 
 describe('parseFindingAid', () => {
@@ -29,5 +29,29 @@ describe('parseFindingAid', () => {
 
   it('rejects non-finding-aid JSON', () => {
     expect(() => parseFindingAid({ hello: 1 })).toThrow(/collection\.title/);
+  });
+});
+
+describe('parseManifest', () => {
+  it('wraps a single-collection finding aid in a one-element array', () => {
+    const aids = parseManifest(seed);
+    expect(aids).toHaveLength(1);
+    expect(aids[0].collectionTitle).toContain('Feminist');
+  });
+
+  it('parses a multi-collection manifest into one aid per collection', () => {
+    const aids = parseManifest({
+      collections: [
+        {
+          repository: { unit: 'Photos' },
+          collection: { title: "Dad's Side" },
+          boxes: [{ box: '1' }],
+        },
+        { repository: { unit: 'Photos' }, collection: { title: "Mom's Side" }, boxes: [] },
+      ],
+    });
+    expect(aids.map((a) => a.collectionTitle)).toEqual(["Dad's Side", "Mom's Side"]);
+    expect(aids[0].archiveName).toBe('Photos');
+    expect(aids[0].boxes).toEqual([{ name: '1', folders: [] }]);
   });
 });

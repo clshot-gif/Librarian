@@ -23,7 +23,7 @@ import {
   suggestTargets,
   buildSavePlan,
 } from '../lib/filingModel.js';
-import { parseFindingAid } from '../lib/findingAid.js';
+import { parseManifest } from '../lib/findingAid.js';
 import demoSeed from '../lib/findingAidSeed.json';
 
 // Filing Mode, redesigned: six columns — Raw page → File → Folder → Box →
@@ -123,7 +123,8 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
   const [grandWin, setGrandWin] = useState(false);
   const [focusNameId, setFocusNameId] = useState(null);
   const [editingName, setEditingName] = useState(null);
-  const [aidInfo, setAidInfo] = useState(null);
+  const [aidInfo, setAidInfo] = useState(null); // array of parsed aids, or null
+  const [focusedCollectionId, setFocusedCollectionId] = useState(null); // null = show all
   const [saveOpen, setSaveOpen] = useState(false);
   const [progress, setProgress] = useState(null);
   // Enlarged preview: a drill-down stack of node ids (last = what's shown).
@@ -149,13 +150,13 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
     // same way the rest of the app demos everything against sample data.
     if (!aidRef.current && backend.kind === 'demo') {
       try {
-        aidRef.current = parseFindingAid(demoSeed);
+        aidRef.current = parseManifest(demoSeed);
       } catch {
         aidRef.current = null;
       }
     }
     if (aidRef.current) {
-      applyFindingAid(state, aidRef.current);
+      for (const aid of aidRef.current) applyFindingAid(state, aid);
       setAidInfo(aidRef.current);
     }
     setModel(state);
@@ -243,6 +244,31 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
     if (!model) return null;
     const cols = { raw: [], file: [], folder: [], box: [], collection: [], archive: [] };
     const all = Object.values(model.nodes);
+    // Collection focus: when a collection is selected in the switcher, only
+    // its slots show (a trip can load many collections; you work one at a
+    // time). The "to file" pool — Unclassified pages and loose files being
+    // built — always shows regardless of focus. Guard against a stale id.
+    const focusColl =
+      focusedCollectionId && model.nodes[focusedCollectionId] ? focusedCollectionId : null;
+    const collectionOf = (id) => {
+      let cur = model.nodes[id];
+      while (cur) {
+        if (cur.kind === 'collection') return cur.id;
+        cur = cur.parentId != null ? model.nodes[cur.parentId] : null;
+      }
+      return null;
+    };
+    const inFocus = (n) => {
+      if (!focusColl) return true;
+      if (n.kind === 'raw') return true; // Unclassified pool is shared
+      if (n.kind === 'file' && n.parentId === null) return true; // loose, being built
+      if (n.kind === 'collection') return n.id === focusColl;
+      if (n.kind === 'archive')
+        return all.some(
+          (c) => c.kind === 'collection' && c.id === focusColl && c.parentId === n.id,
+        );
+      return collectionOf(n.id) === focusColl;
+    };
     const spillCounts = new Map();
     for (const n of all) {
       if (n.parentId === null && n.origin) {
@@ -259,6 +285,7 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
       model.nodes[n.parentId] &&
       LEVEL[model.nodes[n.parentId].kind] - LEVEL[n.kind] >= 2;
     for (const n of all) {
+      if (!inFocus(n)) continue;
       if (n.kind === 'raw') {
         if (n.parentId === null || skippedFlat(n)) {
           cols.raw.push({ key: n.id, type: 'card', node: n });
@@ -286,6 +313,7 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
     // `?` buckets render one column below their parent, scoped to it.
     for (const n of all) {
       if (LEVEL[n.kind] < 2) continue;
+      if (!inFocus(n)) continue;
       const members = childrenOf(model, n.id, { buckets: true });
       if (members.length) {
         cols[KINDS[LEVEL[n.kind] - 1]].push({
@@ -313,7 +341,7 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
       });
     }
     return cols;
-  }, [model]);
+  }, [model, focusedCollectionId]);
 
   // ── Drag mechanics (custom pointer drag, same approach as before) ───────
   function dragIdsFor(itemId) {
@@ -560,10 +588,13 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
     if (!file) return;
     file.text().then((text) => {
       try {
-        const aid = parseFindingAid(JSON.parse(text));
-        aidRef.current = aid;
-        setAidInfo(aid);
-        mutate((m) => applyFindingAid(m, aid));
+        const aids = parseManifest(JSON.parse(text));
+        aidRef.current = aids;
+        setAidInfo(aids);
+        setFocusedCollectionId(null);
+        mutate((m) => {
+          for (const aid of aids) applyFindingAid(m, aid);
+        });
       } catch (err) {
         alert(`Couldn't read that finding aid: ${err.message}`);
       }
@@ -1128,24 +1159,56 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
         </button>
         <input ref={fileInputRef} type="file" accept=".json" hidden onChange={onAidFile} />
       </div>
-      {aidInfo && (
-        <div className="aid-note" title={aidInfo.status}>
-          Finding aid: <b>{aidInfo.collectionTitle}</b>
-          {aidInfo.dates ? `, ${aidInfo.dates}` : ''} — {aidInfo.archiveName}
-          {aidInfo.url && (
-            <>
-              {' · '}
-              <a href={aidInfo.url} target="_blank" rel="noreferrer">
-                source
-              </a>
-            </>
-          )}
-          {aidInfo.boxes.length === 0 && (
-            <span className="aid-warn">
-              {' '}
-              · box/folder inventory not available yet — expected slots are collection-level only
-            </span>
-          )}
+      {aidInfo && aidInfo.length > 0 && (
+        <div className="aid-bar">
+          <div className="aid-note">
+            {aidInfo.length === 1 ? (
+              <>
+                Finding aid: <b>{aidInfo[0].collectionTitle}</b>
+                {aidInfo[0].dates ? `, ${aidInfo[0].dates}` : ''} — {aidInfo[0].archiveName}
+                {aidInfo[0].url && (
+                  <>
+                    {' · '}
+                    <a href={aidInfo[0].url} target="_blank" rel="noreferrer">
+                      source
+                    </a>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                Manifest: <b>{aidInfo.length} collections</b> loaded
+              </>
+            )}
+          </div>
+          {(() => {
+            const colls = Object.values(model.nodes)
+              .filter((n) => n.kind === 'collection')
+              .sort((a, b) =>
+                (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }),
+              );
+            if (colls.length < 2) return null;
+            return (
+              <div className="coll-switch">
+                <span className="coll-switch-label">Show:</span>
+                <button
+                  className={`coll-tab ${focusedCollectionId === null ? 'is-active' : ''}`}
+                  onClick={() => setFocusedCollectionId(null)}
+                >
+                  All
+                </button>
+                {colls.map((c) => (
+                  <button
+                    key={c.id}
+                    className={`coll-tab ${focusedCollectionId === c.id ? 'is-active' : ''}`}
+                    onClick={() => setFocusedCollectionId(c.id)}
+                  >
+                    {c.name || 'Untitled'}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
 

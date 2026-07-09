@@ -1002,8 +1002,14 @@ select {
   padding: 4px 10px;
   font-size: 12px;
 }
-.aid-note {
+.aid-bar {
   margin: 4px 18px 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.aid-note {
   padding: 6px 12px;
   font-size: 12px;
   color: var(--dim);
@@ -1019,6 +1025,33 @@ select {
 }
 .aid-note .aid-warn {
   color: var(--mustard);
+}
+.coll-switch {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.coll-switch-label {
+  font-size: 12px;
+  color: var(--dim);
+}
+.coll-tab {
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.coll-tab:hover {
+  border-color: var(--sage);
+}
+.coll-tab.is-active {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
 }
 
 .filing-columns {
