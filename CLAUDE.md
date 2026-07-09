@@ -3,6 +3,12 @@
 Built 2026-07-07 from `../handoff-phase2-review-ui.md` — read that for intent,
 this file for what actually shipped and how it works.
 
+**2026-07-08 — structural bug-fix phase handed off:** `../handoff-fable-structural-fixes.md`
+has a ranked wishlist of cross-repo (archive-capture + review-ui) structural issues,
+starting from `origin/main` @ `8625d8a`. Read it before starting new feature work in
+this repo, since several open items (Picker hang, non-transactional Save, the
+124-byte/30-property Drive limits) touch code you'll likely be editing anyway.
+
 ## What it is
 
 A local web app (Vite + React) that opens Google Drive folders produced by the
