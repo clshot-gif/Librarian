@@ -85,9 +85,17 @@ This tool reads/writes the mobile app's `properties` schema unchanged, plus
   so their blank-means-unknown behavior is unchanged. Never shown in the UI
   (Carter's call, 2026-07-08: field exists for the tool, not for humans).
 
-Known constraint inherited from the schema: Drive property values cap at ~124
-bytes — long comment logs can exceed this. The mobile app has the same
-unguarded issue; punted here on purpose (first pass, matches existing risk).
+Drive's property limits are handled by `src/lib/driveProps.js` — a contract
+file kept **byte-identical** with `archive-capture/src/utils/driveProps.js`
+(each repo's tests fail if the copies drift; edit both together). Values over
+the 124-byte cap split losslessly across continuation properties (`tag_log`,
+`tag_log~1`, …), reassembled on read; updates clear stale continuation slots
+(Drive merges properties per-key on PATCH). Packing past Drive's
+~30-properties-per-file ceiling throws a descriptive error — the eventual
+answer for huge histories is a sidecar document, deliberately not designed
+yet. A JSON field that won't parse (e.g. truncated by the mobile app's
+pre-2026-07-09 scheme) is salvaged entry-by-entry, logged with the filename,
+and recorded on `parsed.parseWarnings` — never silently emptied.
 
 ## Conventions honored (do not re-derive)
 
