@@ -146,9 +146,23 @@ function findLoadedChild(nodes, parentId, name) {
 // plan: buildSavePlan(state) output — {units:[{archiveName, collection,
 // box, folder, files:[{title, refs, pristineFileId}]}], skipped}.
 // roots: the loaded root folders [{id, name}].
+//
+// Failure contract (this is the part that protects real scans): each file
+// entry is written inside its own try/catch. On the first failure the save
+// STOPS — a mid-save error (expired token, quota, flaky network) almost
+// always breaks everything after it too, and stopping keeps the picture
+// simple. Sources are only ever trashed when every page of them landed in a
+// document Drive confirmed written — a failure can leave duplicates to clean
+// up (source + partial copy), never a trashed source whose replacement
+// doesn't exist. Instead of throwing, the failure is reported in the return
+// value ({...results, failure}) so the caller can show exactly what did and
+// didn't complete and reload to the real state.
 export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
   const say = (msg) => onProgress?.(msg);
   const results = { filed: 0, merged: 0, unchanged: 0, trashed: 0, kept: 0 };
+  const totalEntries = plan.units.reduce((n, u) => n + u.files.length, 0);
+  let entriesDone = 0;
+  let failure = null;
 
   // Every content page consumed into a new document → source is superseded
   // and gets trashed. Any page still unplaced → source is kept (with a log
@@ -210,7 +224,7 @@ export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
     return n;
   };
 
-  for (const unit of plan.units) {
+  outer: for (const unit of plan.units) {
     const { archiveName, collection, box, folder } = unit;
     // Save plans only contain determinate placements, so a blank box/folder
     // here is a deliberate skip — stamp it so reload doesn't mistake it for
@@ -228,33 +242,74 @@ export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
     };
 
     for (const entry of unit.files) {
-      if (entry.pristineFileId) {
-        const node = nodes.get(entry.pristineFileId);
-        const p = node.parsed;
-        const unchanged =
-          p.box === box &&
-          p.folder === folder &&
-          p.collection === collection &&
-          p.archiveName === archiveName &&
-          (p.title || '') === (entry.title || '') &&
-          (p.skippedLevels || []).join(',') === skippedLevels.join(',');
-        if (unchanged) {
-          results.unchanged++;
+      const entryLabel =
+        entry.title ||
+        (entry.pristineFileId ? nodes.get(entry.pristineFileId)?.name : null) ||
+        `document ${entriesDone + 1}`;
+      try {
+        if (entry.pristineFileId) {
+          const node = nodes.get(entry.pristineFileId);
+          const p = node.parsed;
+          const unchanged =
+            p.box === box &&
+            p.folder === folder &&
+            p.collection === collection &&
+            p.archiveName === archiveName &&
+            (p.title || '') === (entry.title || '') &&
+            (p.skippedLevels || []).join(',') === skippedLevels.join(',');
+          if (unchanged) {
+            results.unchanged++;
+            keptInPlace.add(entry.pristineFileId);
+            entriesDone++;
+            continue;
+          }
+          // Placement or title changed but the PDF itself didn't: update in
+          // place (props + rename + move), no re-upload.
+          const destId = await destFor();
+          const parsed = {
+            ...p,
+            box,
+            folder,
+            collection,
+            archiveName,
+            title: entry.title,
+            skippedLevels,
+          };
+          const name = buildFileName({
+            archiveName,
+            collection,
+            box,
+            folder,
+            title: entry.title,
+            number: (entry.title || '').trim() ? 0 : await getNumber(destId),
+            omg: parsed.omgPages.length > 0,
+          });
+          say(`Filing ${name}…`);
+          await backend.setProperties(entry.pristineFileId, serializeProps(parsed));
+          await backend.rename(entry.pristineFileId, name);
+          await backend.move(entry.pristineFileId, destId, node.parentId);
           keptInPlace.add(entry.pristineFileId);
+          results.filed++;
+          entriesDone++;
           continue;
         }
-        // Placement or title changed but the PDF itself didn't: update in
-        // place (props + rename + move), no re-upload.
+
+        // Composed document — merged from whole files, rebuilt from exploded
+        // pages, or any mix.
+        say(
+          `Assembling ${entry.refs.length} ${entry.refs.length === 1 ? 'part' : 'parts'} into one document…`,
+        );
+        const built = await buildDocumentPdf(backend, nodes, entry.refs, entry.title);
+        built.parsed.box = box;
+        built.parsed.folder = folder;
+        built.parsed.collection = collection;
+        built.parsed.archiveName = archiveName;
+        built.parsed.skippedLevels = skippedLevels;
+
+        const withNotes = await rebuildNotesPage(built.bytes, built.parsed);
+        built.parsed.notesPageIndex = withNotes.notesPageIndex;
+
         const destId = await destFor();
-        const parsed = {
-          ...p,
-          box,
-          folder,
-          collection,
-          archiveName,
-          title: entry.title,
-          skippedLevels,
-        };
         const name = buildFileName({
           archiveName,
           collection,
@@ -262,65 +317,55 @@ export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
           folder,
           title: entry.title,
           number: (entry.title || '').trim() ? 0 : await getNumber(destId),
-          omg: parsed.omgPages.length > 0,
+          omg: built.parsed.omgPages.length > 0,
         });
-        say(`Filing ${name}…`);
-        await backend.setProperties(entry.pristineFileId, serializeProps(parsed));
-        await backend.rename(entry.pristineFileId, name);
-        await backend.move(entry.pristineFileId, destId, node.parentId);
-        keptInPlace.add(entry.pristineFileId);
+        say(`Uploading ${name}…`);
+        await backend.createFile({
+          name,
+          parentId: destId,
+          properties: serializeProps(built.parsed, { newFile: true }),
+          bytes: withNotes.bytes,
+        });
+        for (const [fid, pages] of built.usedPages) {
+          if (!consumed.has(fid)) consumed.set(fid, new Set());
+          for (const p of pages) consumed.get(fid).add(p);
+        }
+        results.merged++;
         results.filed++;
-        continue;
+        entriesDone++;
+      } catch (err) {
+        failure = {
+          label: entryLabel,
+          message: err?.message || String(err),
+          completed: entriesDone,
+          notAttempted: totalEntries - entriesDone - 1,
+        };
+        say(`❌ Failed while writing “${entryLabel}”: ${failure.message}`);
+        break outer;
       }
-
-      // Composed document — merged from whole files, rebuilt from exploded
-      // pages, or any mix.
-      say(
-        `Assembling ${entry.refs.length} ${entry.refs.length === 1 ? 'part' : 'parts'} into one document…`,
-      );
-      const built = await buildDocumentPdf(backend, nodes, entry.refs, entry.title);
-      built.parsed.box = box;
-      built.parsed.folder = folder;
-      built.parsed.collection = collection;
-      built.parsed.archiveName = archiveName;
-      built.parsed.skippedLevels = skippedLevels;
-
-      const withNotes = await rebuildNotesPage(built.bytes, built.parsed);
-      built.parsed.notesPageIndex = withNotes.notesPageIndex;
-
-      const destId = await destFor();
-      const name = buildFileName({
-        archiveName,
-        collection,
-        box,
-        folder,
-        title: entry.title,
-        number: (entry.title || '').trim() ? 0 : await getNumber(destId),
-        omg: built.parsed.omgPages.length > 0,
-      });
-      say(`Uploading ${name}…`);
-      await backend.createFile({
-        name,
-        parentId: destId,
-        properties: serializeProps(built.parsed, { newFile: true }),
-        bytes: withNotes.bytes,
-      });
-      for (const [fid, pages] of built.usedPages) {
-        if (!consumed.has(fid)) consumed.set(fid, new Set());
-        for (const p of pages) consumed.get(fid).add(p);
-      }
-      results.merged++;
-      results.filed++;
     }
   }
 
-  // Trash sources whose every content page landed in a saved document.
+  // Trash sources whose every content page landed in a saved document. The
+  // `consumed` map only ever grows after backend.createFile returned, so even
+  // on the failure path everything trashed here has a confirmed replacement.
+  // (Sources feeding the failed/unattempted entries are simply not in it.)
   for (const [fid, pages] of consumed) {
     if (keptInPlace.has(fid)) continue;
     const total = nodes.get(fid)?.parsed?.pageCount ?? 0;
     if (pages.size >= total) {
-      await backend.trash(fid);
-      results.trashed++;
+      try {
+        await backend.trash(fid);
+        results.trashed++;
+      } catch (err) {
+        // Not data loss (the replacement is written) — but the duplicate
+        // source needs to be visible, not silently left behind.
+        say(
+          `⚠ Couldn't trash the superseded source “${nodes.get(fid)?.name}”: ` +
+            `${err?.message || err}. Its content was saved into a new document, so ` +
+            `you'll see both until it's removed by hand.`,
+        );
+      }
     } else {
       results.kept++;
       say(
@@ -331,6 +376,6 @@ export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
     }
   }
 
-  say('Done.');
-  return results;
+  if (!failure) say('Done.');
+  return { ...results, failure };
 }

@@ -383,3 +383,204 @@ describe('saveFiling', () => {
     expect(res.kept).toBe(1);
   });
 });
+
+// ── Mid-save failure: the transactional guarantees ──────────────────────────
+// A save that dies partway (expired token, quota, flaky network — all real
+// occurrences in this project's history) must (a) never trash a source whose
+// replacement wasn't confirmed written, and (b) report exactly what did and
+// didn't complete, so the user can resume instead of starting over.
+describe('saveFiling under mid-save failure', () => {
+  // Wraps any backend so the Nth call to `method` throws — the
+  // fault-injection double the handoff asked for.
+  function withFault(backend, method, failOnCall, message = 'injected Drive failure') {
+    let calls = 0;
+    return Object.create(backend, {
+      [method]: {
+        value(...args) {
+          calls++;
+          if (calls === failOnCall) return Promise.reject(new Error(message));
+          return backend[method](...args);
+        },
+      },
+    });
+  }
+
+  function recordingBackend(bytes) {
+    return {
+      bytes,
+      created: [],
+      trashed: [],
+      moved: [],
+      renamed: [],
+      props: [],
+      folders: [],
+      getPdfBytes(fid) {
+        return Promise.resolve(this.bytes[fid]);
+      },
+      listChildren() {
+        return Promise.resolve([]);
+      },
+      createFolder(name, parentId) {
+        const id = `folder-${this.folders.length}`;
+        this.folders.push({ id, name, parentId });
+        return Promise.resolve(id);
+      },
+      createFile({ name, parentId, properties }) {
+        this.created.push({ name, parentId, properties });
+        return Promise.resolve(`new-${this.created.length}`);
+      },
+      setProperties(fid, props) {
+        this.props.push({ fid, props });
+        return Promise.resolve();
+      },
+      rename(fid, name) {
+        this.renamed.push({ fid, name });
+        return Promise.resolve();
+      },
+      move(fid, to) {
+        this.moved.push({ fid, to });
+        return Promise.resolve();
+      },
+      trash(fid) {
+        this.trashed.push(fid);
+        return Promise.resolve();
+      },
+    };
+  }
+
+  function twoDocPlan() {
+    return {
+      units: [
+        {
+          archiveName: '',
+          collection: 'Good Poems',
+          box: '1',
+          folder: '1',
+          files: [
+            {
+              nodeId: 'n1',
+              title: 'Doc one',
+              refs: [{ fileId: 'A', pageIndex: null }],
+              pristineFileId: null,
+            },
+            {
+              nodeId: 'n2',
+              title: 'Doc two',
+              refs: [{ fileId: 'B', pageIndex: null }],
+              pristineFileId: null,
+            },
+          ],
+        },
+      ],
+      skipped: { unresolved: 0, loose: 0, unnamed: 0, noCollection: 0, shells: 0 },
+    };
+  }
+
+  async function twoSourceCorpus() {
+    const bytes = { A: await makeSource([601]), B: await makeSource([611]) };
+    const corpus = new Map([
+      ['A', { id: 'A', name: 'a.pdf', parentId: 'p', parsed: parsedFor({ pageCount: 1 }) }],
+      ['B', { id: 'B', name: 'b.pdf', parentId: 'p', parsed: parsedFor({ pageCount: 1 }) }],
+    ]);
+    return { bytes, corpus };
+  }
+
+  it('a failed upload stops the save, reports it, and trashes only confirmed-replaced sources', async () => {
+    const { bytes, corpus } = await twoSourceCorpus();
+    const be = recordingBackend(bytes);
+    // Doc one's upload succeeds; Doc two's fails.
+    const faulty = withFault(be, 'createFile', 2, 'token expired');
+
+    const progress = [];
+    const res = await saveFiling({
+      backend: faulty,
+      nodes: corpus,
+      roots: [],
+      plan: twoDocPlan(),
+      onProgress: (m) => progress.push(m),
+    });
+
+    expect(res.failure).toMatchObject({ label: 'Doc two', completed: 1, notAttempted: 0 });
+    expect(res.failure.message).toMatch(/token expired/);
+    // Doc one reached Drive; its fully-consumed source is safely superseded → trashed.
+    expect(be.created.map((c) => c.name)).toEqual(['Good Poems - 1 - 1 - Doc one.pdf']);
+    expect(be.trashed).toEqual(['A']);
+    // Doc two never got written — its source B must be untouched.
+    expect(be.trashed).not.toContain('B');
+    expect(progress.some((m) => m.includes('Doc two'))).toBe(true);
+  });
+
+  it('a source is never trashed when the entry consuming it failed', async () => {
+    const { bytes, corpus } = await twoSourceCorpus();
+    const be = recordingBackend(bytes);
+    const faulty = withFault(be, 'createFile', 1, 'quota exceeded');
+
+    const res = await saveFiling({
+      backend: faulty,
+      nodes: corpus,
+      roots: [],
+      plan: twoDocPlan(),
+    });
+
+    expect(res.failure).toMatchObject({ label: 'Doc one', completed: 0, notAttempted: 1 });
+    expect(be.created).toEqual([]);
+    expect(be.trashed).toEqual([]);
+  });
+
+  it('a failure filing a pristine file in place stops before the move and trashes nothing', async () => {
+    const bytes = { P: await makeSource([601]) };
+    const corpus = new Map([
+      [
+        'P',
+        {
+          id: 'P',
+          name: 'p.pdf',
+          parentId: 'old-folder',
+          parsed: parsedFor({ pageCount: 1, collection: 'Good Poems', box: '9', folder: '9' }),
+        },
+      ],
+    ]);
+    const be = recordingBackend(bytes);
+    const faulty = withFault(be, 'rename', 1, 'network blip');
+
+    const plan = {
+      units: [
+        {
+          archiveName: '',
+          collection: 'Good Poems',
+          box: '1',
+          folder: '1',
+          files: [{ nodeId: 'n1', title: '', refs: [], pristineFileId: 'P' }],
+        },
+      ],
+      skipped: { unresolved: 0, loose: 0, unnamed: 0, noCollection: 0, shells: 0 },
+    };
+    const res = await saveFiling({ backend: faulty, nodes: corpus, roots: [], plan });
+
+    expect(res.failure).toMatchObject({ label: 'p.pdf', completed: 0 });
+    expect(be.moved).toEqual([]); // rename comes before move; the move never ran
+    expect(be.trashed).toEqual([]);
+  });
+
+  it('a failed trash of a superseded source is reported, not fatal', async () => {
+    const { bytes, corpus } = await twoSourceCorpus();
+    const be = recordingBackend(bytes);
+    const faulty = withFault(be, 'trash', 1, 'trash hiccup');
+
+    const progress = [];
+    const res = await saveFiling({
+      backend: faulty,
+      nodes: corpus,
+      roots: [],
+      plan: twoDocPlan(),
+      onProgress: (m) => progress.push(m),
+    });
+
+    expect(res.failure).toBeNull();
+    expect(res.merged).toBe(2);
+    expect(res.trashed).toBe(1); // the other one still got trashed
+    expect(progress.some((m) => m.includes('Couldn’t trash') || m.includes("Couldn't trash"))).toBe(
+      true,
+    );
+  });
+});

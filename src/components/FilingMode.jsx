@@ -670,15 +670,45 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
   async function runSave() {
     setProgress([]);
     const log = (msg) => setProgress((p) => [...(p || []), msg]);
+    let reloadNote = 'Refreshing…';
     try {
       const res = await saveFiling({ backend, nodes, roots, plan: savePlan, onProgress: log });
-      log(
-        `Filed ${res.filed} document${res.filed === 1 ? '' : 's'} ` +
-          `(${res.merged} assembled, ${res.unchanged} already in place). Refreshing…`,
-      );
+      if (res.failure) {
+        // saveFiling stopped at the first failed write. Nothing was trashed
+        // unless its replacement was confirmed written, so the worst case on
+        // Drive is a duplicate, never a loss. Spell out exactly where it
+        // stopped so this is resumable rather than start-over.
+        log(
+          `Save stopped: ${res.failure.completed} of ` +
+            `${res.failure.completed + 1 + res.failure.notAttempted} documents were fully ` +
+            `written before “${res.failure.label}” failed` +
+            (res.failure.notAttempted > 0
+              ? `; ${res.failure.notAttempted} weren't attempted.`
+              : '.'),
+        );
+        log(
+          'No original scans were removed without a confirmed replacement. After the ' +
+            'board refreshes, whatever is still unfiled is exactly what remains to save — ' +
+            'fix the problem (often just signing in again) and Save again.',
+        );
+        reloadNote = 'Refreshing to show what actually reached Drive…';
+      } else {
+        log(
+          `Filed ${res.filed} document${res.filed === 1 ? '' : 's'} ` +
+            `(${res.merged} assembled, ${res.unchanged} already in place). Refreshing…`,
+        );
+      }
+    } catch (err) {
+      // Unexpected (saveFiling reports normal failures in-band) — still
+      // reload, so the board never lies about what's on Drive.
+      log(`❌ Save failed: ${err.message || err}`);
+      reloadNote = 'Refreshing to show what actually reached Drive…';
+    }
+    try {
+      log(reloadNote);
       await onReload();
     } catch (err) {
-      log(`❌ Save failed: ${err.message || err}`);
+      log(`❌ Couldn't refresh from Drive: ${err.message || err}. Reload the page to re-sync.`);
     }
   }
 
