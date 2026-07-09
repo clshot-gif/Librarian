@@ -74,3 +74,35 @@ describe('serializeProps / parseProps round-trip under the 124-byte cap', () => 
     expect(back.title).toBe('1997 baseball card');
   });
 });
+
+describe('parseProps on damaged values (mobile-app truncation)', () => {
+  it('salvages the complete comment entries instead of silently returning []', () => {
+    const comments = [
+      { page: 0, text: 'Water damage on left edge' },
+      { page: 1, text: 'A second, longer note that will get cut off midway' },
+    ];
+    const truncated = `${JSON.stringify(comments).slice(0, 60)}…`;
+    const back = parseProps({ typed_comments: truncated });
+    expect(back.comments).toEqual([
+      { page: 0, text: 'Water damage on left edge', user: '', ts: '' },
+    ]);
+    expect(back.parseWarnings.length).toBeGreaterThan(0);
+  });
+
+  it('reports clean metadata with no warnings', () => {
+    expect(parseProps(serializeProps(parsedWithTags(3))).parseWarnings).toEqual([]);
+  });
+
+  it('a shrinking log updated in place reads back correctly (stale-chunk cleanup)', () => {
+    const many = serializeProps(parsedWithTags(12)); // tag_log spans several chunks
+    const one = serializeProps(parsedWithTags(1)); // now it fits in one
+    // Simulate Drive's per-key PATCH merge (null deletes).
+    const onDrive = { ...many };
+    for (const [k, v] of Object.entries(one)) {
+      if (v === null || v === undefined) delete onDrive[k];
+      else onDrive[k] = v;
+    }
+    expect(parseProps(onDrive).tagLog).toEqual(parsedWithTags(1).tagLog);
+    expect(parseProps(onDrive).parseWarnings).toEqual([]);
+  });
+});

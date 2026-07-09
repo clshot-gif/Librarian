@@ -21,9 +21,10 @@ function sanitize(value) {
 // and permanently failed — folders kept getting created fine (separate,
 // short-named call), so it looked exactly like a network/sync bug. The
 // filename is used as Drive's own `name` field and as a local file path, so
-// it must be capped at the source. Same cap, same place in the logic, as the
-// mobile app's MAX_FILENAME_LENGTH.
-const MAX_FILENAME_LENGTH = 100;
+// it must be capped at the source. The cap itself lives in driveProps.js —
+// the shared contract file both repos carry byte-identical copies of — so
+// the two apps can no longer drift apart on it.
+import { MAX_FILENAME_LENGTH } from './driveProps.js';
 
 // The final segment is the human title when the file has one, otherwise the
 // zero-padded auto-counter. Carter's call (2026-07-08): a title he typed

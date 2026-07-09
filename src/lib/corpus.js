@@ -26,6 +26,16 @@ export async function loadCorpus(backend, roots, onProgress) {
     frontier.forEach((fid, i) => {
       const parent = nodes.get(fid);
       for (const child of batches[i]) {
+        const parsed = child.isFolder ? null : parseProps(child.properties);
+        // A file whose Drive metadata didn't parse cleanly (e.g. JSON cut off
+        // by the mobile app's old truncation) used to lose those fields
+        // silently — at minimum it's now on the record with the filename.
+        if (parsed?.parseWarnings?.length) {
+          console.error(
+            `Metadata damaged on "${child.name}" (${child.id}) — ` +
+              `salvaged what was intact:\n- ${parsed.parseWarnings.join('\n- ')}`,
+          );
+        }
         const node = {
           id: child.id,
           name: child.name,
@@ -33,7 +43,7 @@ export async function loadCorpus(backend, roots, onProgress) {
           parentId: fid,
           rootId: parent.rootId,
           children: [],
-          parsed: child.isFolder ? null : parseProps(child.properties),
+          parsed,
         };
         nodes.set(node.id, node);
         parent.children.push(node.id);

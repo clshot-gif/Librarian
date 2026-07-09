@@ -302,7 +302,7 @@ export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
       await backend.createFile({
         name,
         parentId: destId,
-        properties: serializeProps(built.parsed),
+        properties: serializeProps(built.parsed, { newFile: true }),
         bytes: withNotes.bytes,
       });
       for (const [fid, pages] of built.usedPages) {

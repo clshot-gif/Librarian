@@ -60,7 +60,7 @@ function filedFile({
     name,
     isFolder: false,
     parentId,
-    properties: serializeProps(parsed),
+    properties: serializeProps(parsed, { newFile: true }),
     demoSpec: {
       seed,
       pages: Array.from({ length: pages }, (_, i) => ({
@@ -102,7 +102,7 @@ function unfiledFile({ parentId, name, capturedAt, seed, heading }) {
     name,
     isFolder: false,
     parentId,
-    properties: serializeProps(parsed),
+    properties: serializeProps(parsed, { newFile: true }),
     demoSpec: {
       seed,
       pages: [{ heading, footer: name }],
