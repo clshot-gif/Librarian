@@ -1731,3 +1731,16 @@ select {
   text-align: center;
   padding: 40px;
 }
+
+/* Error strip shown while in the working screens (pick-screen errors render
+   on the pick screen itself) — e.g. the folder picker failing mid-session. */
+.work-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  background: #7f1d1d;
+  color: #fecaca;
+  font-size: 13px;
+}

@@ -165,6 +165,17 @@ export default function App() {
 
   return (
     <div style={{ height: '100%' }}>
+      {/* Errors hit while already working (e.g. the folder picker failing on
+          "Change folders") used to be stored but rendered nowhere — the only
+          error display lived on the pick screen. */}
+      {error && (
+        <div className="work-error-banner" role="alert">
+          <span>{error}</span>
+          <button className="btn" onClick={() => setError('')}>
+            Dismiss
+          </button>
+        </div>
+      )}
       <header className="app-header">
         <div className="brand">
           Archive <span>Review</span>
