@@ -114,6 +114,76 @@ export async function createFolder(token, name, parentId) {
   return folder.id;
 }
 
+// Google caps uploadType=media "simple" uploads at 5MB — past that Drive
+// rejects the request and (from the mobile app's history) it looks exactly
+// like a network glitch. Anything bigger goes through a resumable session
+// instead. Threshold sits under the real cap for headroom.
+const SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024;
+// Resumable chunks must be multiples of 256KiB (Drive requirement).
+const RESUMABLE_CHUNK = 8 * 1024 * 1024;
+
+// Drive's resumable protocol: one request opens a session (the URI comes
+// back in the Location header), then the bytes go up in chunked PUTs with
+// Content-Range. Drive answers 308 + a Range header for "got it, send more"
+// — including after a flaky chunk, where the Range header tells us exactly
+// where to resume from.
+async function uploadContentResumable(token, fileId, bytes) {
+  const initRes = await fetchWithRetry(`${UPLOAD_URL}/${fileId}?uploadType=resumable`, {
+    method: 'PATCH',
+    headers: {
+      ...authHeaders(token),
+      'Content-Type': 'application/json',
+      'X-Upload-Content-Type': 'application/pdf',
+      'X-Upload-Content-Length': String(bytes.length),
+    },
+    body: JSON.stringify({}),
+  });
+  const sessionUri = initRes.headers.get('location');
+  if (!sessionUri) throw new Error('Drive did not return a resumable upload session URI');
+
+  const total = bytes.length;
+  let offset = 0;
+  let attempts = 0;
+  while (offset < total) {
+    const end = Math.min(offset + RESUMABLE_CHUNK, total);
+    const res = await fetch(sessionUri, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Range': `bytes ${offset}-${end - 1}/${total}`,
+      },
+      body: bytes.subarray(offset, end),
+    });
+    if (res.status === 308) {
+      // Chunk accepted (fully or partially); Range says how far Drive got.
+      const range = res.headers.get('range');
+      const m = range && range.match(/-(\d+)$/);
+      offset = m ? parseInt(m[1], 10) + 1 : end;
+      attempts = 0;
+    } else if (res.ok) {
+      return;
+    } else {
+      const bodyText = await res.text();
+      if (attempts < 4 && isRetryable(res.status, bodyText)) {
+        attempts++;
+        await sleep(1000 * 2 ** attempts);
+        // Same offset — Drive ignores bytes it already has.
+      } else {
+        throw new Error(`Resumable upload failed at byte ${offset}: ${res.status} ${bodyText}`);
+      }
+    }
+  }
+}
+
+function uploadContent(token, fileId, bytes) {
+  if (bytes.length > SIMPLE_UPLOAD_LIMIT) return uploadContentResumable(token, fileId, bytes);
+  return fetchWithRetry(`${UPLOAD_URL}/${fileId}?uploadType=media`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/pdf' },
+    body: bytes,
+  });
+}
+
 // Two-step upload (metadata, then binary), same as the uploader.
 export async function uploadPdf(token, { bytes, filename, folderId, properties }) {
   const metaRes = await fetchWithRetry(FILES_URL, {
@@ -122,20 +192,11 @@ export async function uploadPdf(token, { bytes, filename, folderId, properties }
     body: JSON.stringify({ name: filename, parents: [folderId], properties }),
   });
   const { id: fileId } = await metaRes.json();
-
-  await fetchWithRetry(`${UPLOAD_URL}/${fileId}?uploadType=media`, {
-    method: 'PATCH',
-    headers: { ...authHeaders(token), 'Content-Type': 'application/pdf' },
-    body: bytes,
-  });
+  await uploadContent(token, fileId, bytes);
   return fileId;
 }
 
 // Replace an existing file's PDF bytes in place (markup bake, notes page).
 export async function updatePdfContent(token, fileId, bytes) {
-  await fetchWithRetry(`${UPLOAD_URL}/${fileId}?uploadType=media`, {
-    method: 'PATCH',
-    headers: { ...authHeaders(token), 'Content-Type': 'application/pdf' },
-    body: bytes,
-  });
+  await uploadContent(token, fileId, bytes);
 }
