@@ -19,7 +19,68 @@ function parseJson(value, fallback) {
   }
 }
 
-export function parseProps(props = {}) {
+// Drive caps each property at 124 bytes for key+value combined (UTF-8). A
+// single attributed tag_log/comment_log entry can blow that on its own, so any
+// oversized value is split across continuation keys — `tag_log`, `tag_log~1`,
+// `tag_log~2`, … — each under the cap, and stitched back together on read.
+// This is transparent: values that already fit are written unchanged (so the
+// mobile app still reads them), and only genuinely-long ones chunk. Known
+// remaining ceiling: Drive also caps a file at ~30 properties total, so a file
+// with dozens of comments would need a sidecar instead — not solved here.
+const PROP_LIMIT = 124;
+const CONT = '~'; // continuation-key marker; can't appear in our schema keys
+const enc = new TextEncoder();
+const byteLen = (s) => enc.encode(s).length;
+
+export function packProps(props) {
+  const out = {};
+  for (const [key, value] of Object.entries(props)) {
+    if (value === null || value === undefined) {
+      out[key] = value;
+      continue;
+    }
+    const str = String(value);
+    if (byteLen(key) + byteLen(str) <= PROP_LIMIT) {
+      out[key] = str;
+      continue;
+    }
+    // Split by code points (never mid-character) into cap-sized pieces.
+    const cps = [...str];
+    let i = 0;
+    let n = 0;
+    while (i < cps.length) {
+      const k = n === 0 ? key : `${key}${CONT}${n}`;
+      const allow = PROP_LIMIT - byteLen(k);
+      let piece = '';
+      while (i < cps.length && byteLen(piece + cps[i]) <= allow) piece += cps[i++];
+      if (piece === '') piece = cps[i++]; // guard: one code point over the cap
+      out[k] = piece;
+      n++;
+    }
+  }
+  return out;
+}
+
+export function unpackProps(raw = {}) {
+  const out = {};
+  for (const key of Object.keys(raw)) {
+    if (key.includes(CONT)) continue; // continuation — folded into its base key
+    const base = raw[key];
+    if (base === null || base === undefined) {
+      out[key] = base;
+      continue;
+    }
+    let val = String(base);
+    for (let n = 1; raw[`${key}${CONT}${n}`] != null; n++) {
+      val += String(raw[`${key}${CONT}${n}`]);
+    }
+    out[key] = val;
+  }
+  return out;
+}
+
+export function parseProps(rawProps = {}) {
+  const props = unpackProps(rawProps);
   const typedComments = parseJson(props.typed_comments, []);
   const commentLog = parseJson(props.comment_log, null);
   return {
@@ -55,7 +116,7 @@ export function parseProps(props = {}) {
 // Back to the all-strings shape Drive wants. Writes both comment_log (with
 // attribution) and typed_comments (legacy shape) so both tools agree.
 export function serializeProps(parsed) {
-  return {
+  return packProps({
     box: parsed.box,
     folder: parsed.folder,
     collection: parsed.collection,
@@ -76,7 +137,7 @@ export function serializeProps(parsed) {
     skipped_levels: (parsed.skippedLevels || []).join(','),
     is_comment: 'false',
     parent_id: '',
-  };
+  });
 }
 
 // "How marked-up is this file" — the fuel for the explorer's highlight
