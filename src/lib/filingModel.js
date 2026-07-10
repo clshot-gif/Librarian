@@ -181,6 +181,9 @@ export function buildModel(corpusNodes, scopeIds, opts = {}) {
       collection: p.collection,
       box: p.box,
       folder: p.folder,
+      // Rides along so a suggestion can tell "blank on purpose" (a previous
+      // flat save) from "not filled in yet" (bucket, not flat placement).
+      skippedLevels: p.skippedLevels || [],
     };
     const unfiled = !p.collection && !p.box && !p.folder && !p.archiveName && !p.title;
     if (unfiled && p.pageCount === 1) {
@@ -281,6 +284,17 @@ export function applyFindingAid(state, aid) {
   return coll.id;
 }
 
+// Landing real content in an expected (finding-aid) slot claims it — and its
+// expected ancestors: a chain with actual documents inside isn't a dashed
+// invitation anymore.
+function clearExpectedUp(state, id) {
+  let cur = state.nodes[id];
+  while (cur) {
+    cur.expected = false;
+    cur = cur.parentId != null ? state.nodes[cur.parentId] : null;
+  }
+}
+
 // A chosen destination archive shows on the board even before any manifest
 // or file mentions it — a manifest-less archive is a valid destination whose
 // columns simply start blank.
@@ -332,6 +346,17 @@ export function suggestedPlacements(state) {
       if (folders.length === 1) target = folders[0];
       else clean = false;
     }
+    // A level left blank at capture time means "not filled in yet" — the
+    // file belongs in the deepest match's `?` bucket, NOT nested flat (flat
+    // would stamp the blank as a deliberate skip). Only a skipped_levels
+    // marker from a previous save makes a blank level resolve flat.
+    if (clean) {
+      const skipped = hint.skippedLevels || [];
+      const unknownBelow =
+        (!hint.box && !(skipped.includes('box') && skipped.includes('folder'))) ||
+        (hint.box && !hint.folder && !skipped.includes('folder'));
+      if (unknownBelow) clean = false;
+    }
     if (clean) {
       out.push({ id: n.id, targetId: target.id, resolve: true });
     } else if (LEVEL[target.kind] - LEVEL.file >= 2) {
@@ -357,7 +382,7 @@ export function applySuggestedPlacements(state) {
     drag.origin = null;
     drag.order = state.seq++;
     if (pl.resolve) {
-      if (target.expected) target.expected = false;
+      clearExpectedUp(state, target.id);
       resolved++;
     } else {
       bucketed++;
@@ -539,7 +564,7 @@ export function applyDrop(state, dragId, target, getParsed) {
     drag.bucket = false;
     drag.origin = null;
     drag.order = state.seq++;
-    if (node.expected) node.expected = false;
+    clearExpectedUp(state, node.id);
   } else if (op === 'nestBucket') {
     drag.parentId = target.parentId;
     drag.bucket = true;

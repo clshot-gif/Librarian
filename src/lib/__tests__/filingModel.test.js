@@ -646,6 +646,27 @@ describe('destination-archive mode: physical location decides placement', () => 
     expect(unknown.parentId).toBe(null); // untouched
   });
 
+  it('a blank folder tag buckets under the matched box — unless a skipped_levels marker says the blank was deliberate', () => {
+    const c = makeTreeCorpus([
+      { id: 'inplace', parentId: 'f2', parsed: tags },
+      { id: 'nofolder', parentId: 'stage', parsed: { ...tags, folder: '' } },
+      {
+        id: 'flatsave',
+        parentId: 'stage',
+        parsed: { ...tags, folder: '', skippedLevels: ['folder'] },
+      },
+    ]);
+    const state = buildModel(c, ['arch', 'stage'], opts);
+    const byFile = (id) =>
+      suggestedPlacements(state).find((s) => state.nodes[s.id].source?.fileId === id);
+    const nofolder = byFile('nofolder');
+    expect(nofolder.resolve).toBe(false); // folder unknown → box ? bucket
+    expect(state.nodes[nofolder.targetId].kind).toBe('box');
+    const flatsave = byFile('flatsave');
+    expect(flatsave.resolve).toBe(true); // blank was a deliberate skip → flat under box
+    expect(state.nodes[flatsave.targetId].kind).toBe('box');
+  });
+
   it('suggestions also match finding-aid expected slots, and accepting claims them', () => {
     const emptyArchCorpus = makeTreeCorpus([{ id: 'staged2', parentId: 'stage', parsed: tags }]);
     const state = buildModel(emptyArchCorpus, ['arch', 'stage'], opts);
