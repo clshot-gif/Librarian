@@ -195,7 +195,21 @@ additions) — verified live: flat save reloads flat, not as a `?` bucket.
   Explorer drag should route through it too (not yet — see TASKS.md). It's the
   single-file distillation of mergeSave.js's pristine-file branch.
 - `src/lib/findingAid.js` + `findingAidSeed.json` — flat-JSON finding-aid
-  ingestion (FWHC Records seed; box inventory pending real data)
+  ingestion. Since 2026-07-10 the manifest for a real archive lives in Drive
+  at `<archive>/Contents/manifest.json` (fetched on archive selection, read-
+  only); the seed file only feeds the demo corpus now.
+- `src/lib/archiveScans.js` — the canonical `Archive Scans` root (2026-07-10,
+  supersedes the closed "Drive root convention" checkpoint): hand-made in
+  Drive, picked once per user via the Picker (localStorage-persisted), its
+  child folders are the only filing destinations, listed in-app. With a
+  destination chosen, saves/refiles write `<archive>/<collection>/Box n/
+  Folder m` (bare collection names) and buildModel treats PHYSICAL location
+  under the archive as truth — tagged files elsewhere become suggestions
+  (`suggestedPlacements`/`applySuggestedPlacements` in filingModel.js, the
+  "Accept all suggested" button). No destination = legacy
+  `Archive Capture — <Collection>` behavior, unchanged.
+- `src/lib/nameSuggest.js` — established Box/Folder/Collection/Archive names
+  (manifest + corpus) feeding the datalists on every name input.
 - `src/lib/pdfEngine.js` — pdf.js wrapper; thumbnails render with 'print'
   intent (see verification gotcha above)
 - `src/lib/tagStore.js` — per-collection pools + master pool (localStorage +

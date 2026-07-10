@@ -1,5 +1,48 @@
 # Tasks — Archive Review (Phase 2 Review UI)
 
+## Session 2026-07-10 (Fable) — filing system round 1 on branch `filing-system-round1`
+Built from `../handoff-filing-system-round1.md` (off `fable/structural-fixes`).
+This SUPERSEDES the 2026-07-08 "Drive root convention" checkpoint: with a
+destination archive chosen, filing goes to `Archive Scans/<archive>/<collection>/
+Box n/Folder m` (bare collection names); the legacy `Archive Capture — <Collection>`
+behavior remains only when no destination is selected. 112 tests green, lint
+clean, build OK; full sample-mode walkthrough done (accept-all → save migrated
+14 files into the archive → reconverged to 0-to-write; Explorer drag renamed/
+retagged/moved a file and Undo move restored it exactly; Box card dragged onto
+Raw tore down to 14 pages; Ctrl+Z restored).
+- [x] Canonical Archive Scans root: picked once via Picker (drive.file grant),
+      persisted in localStorage, changeable (⚙); archives listed in-app via
+      one listChildren — the Picker never chooses destinations.
+- [x] Per-archive `Contents/manifest.json` fetched on archive selection
+      (replaces the bundled seed for real use; the seed now feeds demo data).
+      Manifest-less archives file with blank columns. Read-only.
+- [x] Source picks inside Archive Scans warn (confirm dialog), never block.
+- [x] Destination mode: placement follows physical location; tagged files
+      elsewhere become 💡 suggestions; "Accept all suggested" places clean
+      matches, buckets partial ones, leaves unknowns loose. Save migrates
+      accepted files into the archive (props+rename+move, no re-upload).
+- [x] Explorer drag routes through refileFile when the target is inside a
+      recognizable structure (archive root ancestry, or legacy root by name);
+      physical-only move elsewhere. Filing board rebuilds on corpus changes.
+      "↩ Undo move" (Explorer header) restores name/props/location exactly,
+      repeatable to the last reload. TASKS' "NEXT UP: Explorer drag also
+      syncs metadata" is DONE.
+- [x] Drag-down explode: drop a File/Folder/Box card on any lower column to
+      decompose to that level in one motion (PDF onto Raw = single pages).
+- [x] Datalist name suggestions (manifest + corpus established names) on all
+      Box/Folder/Collection/Archive inputs (MetadataPanel + board cards).
+- [ ] Pick up next: Carter merges/reviews; real-Drive smoke test — create
+      Archive Scans + an archive + Contents/manifest.json by hand, pick it
+      once, file a practice batch in. Watch: first save into a brand-new
+      archive, and the Picker key config on the live site.
+- Known gaps left on purpose: folder drags in Explorer stay physical-only
+  (descendant metadata not rewritten); `?`-bucket placements are working
+  state, not saved — they reappear as suggestions after reload; a corpus
+  folder can't enter the board as one unexploded unit (files are flattened
+  by design — noted as the judgment call, deferred); non-PDF thumbnail bug
+  unchanged (Contents/ is excluded from loading, so manifest.json never
+  becomes a card unless the archive folder itself is picked as a source).
+
 ## Session 2026-07-09 (Fable) — structural fixes landed on branch `fable/structural-fixes`
 Branch off `origin/main`, awaiting Carter's review/merge (not deployed).
 Handoff items 1, 2 (bounds check only), 3, 4, 5, 7 done; 6 done in
