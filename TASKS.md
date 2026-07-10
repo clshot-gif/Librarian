@@ -1,5 +1,18 @@
 # Tasks — Archive Review (Phase 2 Review UI)
 
+## Session 2026-07-10 — git housekeeping (merge, test, deploy)
+- [x] Merged `fable/structural-fixes` into `main` (fast-forward), then
+      `filing-system-round1` into `main` (fast-forward) — no conflicts.
+- [x] On `main`: 112 tests green, lint clean, build OK.
+- [x] Deleted stale local branch `filing-system-round2`.
+- [x] Pushed `main` to origin; deployed via `npm run deploy` —
+      https://clshot-gif.github.io/Librarian/ confirmed live (verified
+      served HTML points at the freshly built asset hashes).
+- [x] In archive-capture: merged its `fable/structural-fixes` into `master`
+      (regular merge, CLAUDE.md auto-merged, no conflicts); 9 tests green
+      incl. the cross-repo driveProps byte-identical check; pushed to origin.
+      `eas update` NOT run (Carter ships that himself).
+
 ## Session 2026-07-10 (Fable) — filing system round 1 on branch `filing-system-round1`
 Built from `../handoff-filing-system-round1.md` (off `fable/structural-fixes`).
 This SUPERSEDES the 2026-07-08 "Drive root convention" checkpoint: with a
@@ -31,10 +44,11 @@ Raw tore down to 14 pages; Ctrl+Z restored).
       decompose to that level in one motion (PDF onto Raw = single pages).
 - [x] Datalist name suggestions (manifest + corpus established names) on all
       Box/Folder/Collection/Archive inputs (MetadataPanel + board cards).
-- [ ] Pick up next: Carter merges/reviews; real-Drive smoke test — create
-      Archive Scans + an archive + Contents/manifest.json by hand, pick it
-      once, file a practice batch in. Watch: first save into a brand-new
-      archive, and the Picker key config on the live site.
+- [x] Merged into `main` (2026-07-10 git housekeeping, see above).
+- [ ] Pick up next: real-Drive smoke test — create Archive Scans + an
+      archive + Contents/manifest.json by hand, pick it once, file a
+      practice batch in. Watch: first save into a brand-new archive, and
+      the Picker key config on the live site.
 - Known gaps left on purpose: folder drags in Explorer stay physical-only
   (descendant metadata not rewritten); `?`-bucket placements are working
   state, not saved — they reappear as suggestions after reload; a corpus
