@@ -14,6 +14,7 @@ function Row({
   onSelectFolder,
   onMove,
   isRoot,
+  isArchiveRoot,
 }) {
   const node = nodes.get(nodeId);
   const [open, setOpen] = useState(depth === 0);
@@ -33,6 +34,7 @@ function Row({
   const parsed = node.parsed;
   const label = node.isFolder ? node.name : displayName(node.name, parsed);
   const isUnprocessedRoot = isRoot && /^Unprocessed /.test(node.name);
+  const rootChip = isArchiveRoot ? 'archive' : isUnprocessedRoot ? 'unfiled' : 'collection';
 
   function handleClick() {
     if (node.isFolder) {
@@ -79,9 +81,7 @@ function Row({
         <span className="tree-icon">{node.isFolder ? '📁' : '📄'}</span>
         <span className="tree-name">{label}</span>
         {isRoot && (
-          <span className={`root-chip ${isUnprocessedRoot ? 'unfiled' : ''}`}>
-            {isUnprocessedRoot ? 'unfiled' : 'collection'}
-          </span>
+          <span className={`root-chip ${isUnprocessedRoot ? 'unfiled' : ''}`}>{rootChip}</span>
         )}
         {!node.isFolder && parsed && (
           <span className="tree-badges">
@@ -122,6 +122,8 @@ export default function Explorer({
   onOpenFile,
   onSelectFolder,
   onMove,
+  canUndoMove,
+  onUndoMove,
 }) {
   return (
     <div className="explorer">
@@ -129,6 +131,15 @@ export default function Explorer({
         {mode === 'filing'
           ? 'Click a folder to load its files into the filing table →'
           : 'Click a file to review it. Drag files or folders to move them.'}
+        {canUndoMove && (
+          <button
+            className="btn small undo-move-btn"
+            title="Undo the last drag-move (restores location, name, and metadata) — repeatable back to the last save/reload"
+            onClick={onUndoMove}
+          >
+            ↩ Undo move
+          </button>
+        )}
       </div>
       {/* `version` isn't in the key — a bump re-renders rows (they read the
           mutated nodes Map) without remounting, so expand state survives. */}
@@ -144,6 +155,7 @@ export default function Explorer({
           onSelectFolder={onSelectFolder}
           onMove={onMove}
           isRoot
+          isArchiveRoot={Boolean(root.archiveDest)}
         />
       ))}
     </div>

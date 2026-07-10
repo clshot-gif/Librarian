@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { renderThumbnail } from '../lib/pdfEngine.js';
 import { displayName } from '../lib/naming.js';
 import { playMergeDing, playNope, playExplode, playLevelWin, playGrandWin } from '../lib/sound.js';
-import { saveFiling } from '../lib/mergeSave.js';
+import { saveFiling, entryUnchanged } from '../lib/mergeSave.js';
 import {
   KINDS,
   LEVEL,
@@ -10,6 +10,7 @@ import {
   addNode,
   buildModel,
   applyFindingAid,
+  ensureArchiveNode,
   dropOperation,
   applyDrop,
   mergeSelection,
@@ -21,10 +22,13 @@ import {
   childrenOf,
   computeCompleteness,
   suggestTargets,
+  suggestedPlacements,
+  applySuggestedPlacements,
   buildSavePlan,
 } from '../lib/filingModel.js';
 import { parseManifest } from '../lib/findingAid.js';
-import demoSeed from '../lib/findingAidSeed.json';
+import { listArchives } from '../lib/archiveScans.js';
+import { collectNameSuggestions } from '../lib/nameSuggest.js';
 
 // Filing Mode, redesigned: six columns — Raw page → File → Folder → Box →
 // Collection → Archive — where dropping a card on a level resolves that
@@ -107,7 +111,19 @@ function Chips({ model, id }) {
   );
 }
 
-export default function FilingMode({ backend, nodes, scopeId, roots, onReload }) {
+export default function FilingMode({
+  backend,
+  nodes,
+  version,
+  scopeId,
+  roots,
+  archiveScans,
+  archiveDest,
+  archiveAids,
+  onSelectArchive,
+  onSetupArchiveScans,
+  onReload,
+}) {
   const [model, setModel] = useState(null);
   const [allScopes, setAllScopes] = useState(true);
   const [selected, setSelected] = useState(() => new Set());
@@ -135,35 +151,65 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
   const dragRef = useRef(null);
   const undoStack = useRef([]);
   const prevCompRef = useRef(null);
-  const aidRef = useRef(null);
+  // Finding aids loaded by hand via the "Load finding aid…" button, kept
+  // separate from the archive's own manifest (archiveAids prop) so both
+  // survive a board rebuild.
+  const manualAidsRef = useRef(null);
   const editUndoPushed = useRef(false);
   const fileInputRef = useRef(null);
+
+  // The filing destinations: Archive Scans' direct child folders, listed
+  // in-app — the Google Picker is never involved in choosing where to file.
+  const [archives, setArchives] = useState([]);
+  const [archivesError, setArchivesError] = useState('');
+  useEffect(() => {
+    let on = true;
+    // Without an Archive Scans folder the chooser isn't rendered at all, so
+    // a stale list is harmless — no need to reset state synchronously here.
+    if (!archiveScans) return;
+    listArchives(backend, archiveScans.id)
+      .then((a) => {
+        if (on) {
+          setArchives(a);
+          setArchivesError('');
+        }
+      })
+      .catch((err) => {
+        if (on) {
+          setArchives([]);
+          setArchivesError(err.message || String(err));
+        }
+      });
+    return () => {
+      on = false;
+    };
+  }, [backend, archiveScans]);
 
   const getParsed = useCallback((fid) => nodes.get(fid)?.parsed, [nodes]);
   const scopeNode = scopeId ? nodes.get(scopeId) : null;
 
   // ── Build / rebuild the workspace ────────────────────────────────────────
+  // `version` is deliberately a dependency without being read: an Explorer
+  // drag while Filing Mode is open mutates the corpus in place, and the
+  // board is a snapshot — it must rebuild to reflect the move (same
+  // mutable-Map idiom as the rest of the app).
   const rebuild = useCallback(() => {
     const scopes = allScopes ? roots.map((r) => r.id) : scopeId ? [scopeId] : [];
-    const state = buildModel(nodes, scopes);
-    // Demo mode ships with the real FWHC finding-aid seed pre-loaded, the
-    // same way the rest of the app demos everything against sample data.
-    if (!aidRef.current && backend.kind === 'demo') {
-      try {
-        aidRef.current = parseManifest(demoSeed);
-      } catch {
-        aidRef.current = null;
-      }
-    }
-    if (aidRef.current) {
-      for (const aid of aidRef.current) applyFindingAid(state, aid);
-      setAidInfo(aidRef.current);
-    }
+    const state = buildModel(nodes, scopes, {
+      archiveRootIds: new Set(archiveDest ? [archiveDest.id] : []),
+    });
+    const aids = [...(archiveAids || []), ...(manualAidsRef.current || [])];
+    for (const aid of aids) applyFindingAid(state, aid);
+    // A manifest-less archive is still a valid destination — show it as a
+    // (dashed) archive card so there's something to file under.
+    if (archiveDest && !aids.length) ensureArchiveNode(state, archiveDest.name);
+    setAidInfo(aids.length ? aids : null);
     setModel(state);
     setSelected(new Set());
     undoStack.current = [];
     prevCompRef.current = null; // no win fanfare for arrangements loaded complete
-  }, [nodes, scopeId, allScopes, roots, backend]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, scopeId, allScopes, roots, archiveDest, archiveAids, version]);
 
   useEffect(() => {
     rebuild();
@@ -360,15 +406,36 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
 
   function targetKey(t) {
     if (!t) return null;
-    return t.type === 'node'
-      ? t.id
-      : t.type === 'bucket'
-        ? `bucket-${t.parentId}`
-        : `new-${t.kind}`;
+    if (t.type === 'node') return t.id;
+    if (t.type === 'bucket') return `bucket-${t.parentId}`;
+    if (t.type === 'column') return `col-${t.kind}`;
+    return `new-${t.kind}`;
   }
 
   function anyValid(ids, target) {
     return ids.some((id) => dropOperation(model, id, target));
+  }
+
+  // Resolve what a pointer position means as a drop. The direct hit (card,
+  // bucket, new-slot) wins when it takes the drag; otherwise fall back to
+  // the enclosing column — so dragging a Box down to Raw explodes it even if
+  // the pointer happens to be over a card, and the whole column is the
+  // explode target, not just its empty space.
+  function resolveTarget(el, ids) {
+    const directEl = el?.closest('[data-drop]');
+    const target = targetFromElement(el);
+    const selfDrop = target?.type === 'node' && ids.includes(target.id);
+    if (target && !selfDrop && anyValid(ids, target)) {
+      return { target, el: directEl, valid: true, selfDrop: false };
+    }
+    const colEl = el?.closest('.fcol-body');
+    if (colEl) {
+      const colTarget = targetFromElement(colEl);
+      if (colTarget && anyValid(ids, colTarget)) {
+        return { target: colTarget, el: colEl, valid: true, selfDrop: false };
+      }
+    }
+    return { target, el: directEl, valid: false, selfDrop };
   }
 
   function onCardPointerDown(e, node) {
@@ -391,15 +458,14 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
       }
       if (d.started) {
         setDrag({ itemId: d.itemId, x: ev.clientX, y: ev.clientY });
-        const target = targetFromElement(document.elementFromPoint(ev.clientX, ev.clientY));
         const ids = dragIdsFor(d.itemId);
-        const selfDrop = target?.type === 'node' && ids.includes(target.id);
-        if (target && !selfDrop && anyValid(ids, target)) {
-          setDropTarget(targetKey(target));
+        const res = resolveTarget(document.elementFromPoint(ev.clientX, ev.clientY), ids);
+        if (res.valid) {
+          setDropTarget(targetKey(res.target));
           setInvalidHover(null);
         } else {
           setDropTarget(null);
-          setInvalidHover(target && !selfDrop ? targetKey(target) : null);
+          setInvalidHover(res.target && !res.selfDrop ? targetKey(res.target) : null);
         }
       }
     };
@@ -421,13 +487,12 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
         return;
       }
       const el = document.elementFromPoint(ev.clientX, ev.clientY);
-      const target = targetFromElement(el);
       const ids = dragIdsFor(d.itemId);
-      const selfDrop = target?.type === 'node' && ids.includes(target.id);
-      const valid = target && !selfDrop && anyValid(ids, target);
+      const res = resolveTarget(el, ids);
+      const { target, valid } = res;
 
       if (valid) {
-        const rect = el.closest('[data-drop]').getBoundingClientRect();
+        const rect = res.el.getBoundingClientRect();
         setFlying({
           itemId: d.itemId,
           x: rect.left + rect.width / 2,
@@ -443,7 +508,7 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
           performDrop(ids, target);
         }, 170);
       } else {
-        if (target && !selfDrop) {
+        if (target && !res.selfDrop) {
           playNope();
           setShakeId(targetKey(target));
           setTimeout(() => setShakeId(null), 350);
@@ -475,8 +540,10 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
     let popKey = targetKey(target);
     let focus = null;
     let effectiveTarget = target;
+    const exploded = [];
     for (const id of ids) {
       const res = applyDrop(next, id, effectiveTarget, getParsed);
+      if (res?.spilled) exploded.push(...res.spilled);
       if (res?.focusId) {
         focus = res.focusId;
         // Dropping a multi-selection on a "new container" target makes ONE
@@ -490,9 +557,16 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
     }
     setModel(next);
     setSelected(new Set());
-    playMergeDing();
-    setPopId(popKey);
-    setTimeout(() => setPopId(null), 400);
+    if (exploded.length) {
+      // Drag-down explode: same feedback as the 💥 button.
+      playExplode();
+      setSpillIds(new Set(exploded));
+      setTimeout(() => setSpillIds(new Set()), 700);
+    } else {
+      playMergeDing();
+      setPopId(popKey);
+      setTimeout(() => setPopId(null), 400);
+    }
     if (focus) setFocusNameId(focus);
   }
 
@@ -561,6 +635,29 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
     }
   }
 
+  // ── Suggested placements (capture-time tags → known slots) ──────────────
+  const suggestions = useMemo(() => (model ? suggestedPlacements(model) : []), [model]);
+  const suggestionIds = useMemo(() => new Set(suggestions.map((s) => s.id)), [suggestions]);
+
+  function doAcceptSuggested() {
+    if (!suggestions.length) return;
+    pushUndo();
+    const next = clone(model);
+    applySuggestedPlacements(next);
+    setModel(next);
+    setSelected(new Set());
+    playMergeDing();
+  }
+
+  // Names already established in this archive — offered as suggestions in
+  // every Box/Folder/Collection/Archive name input, so nobody retypes an
+  // established name slightly wrong and splits one box in two.
+  const nameSuggestions = useMemo(
+    () => collectNameSuggestions(nodes, aidInfo),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nodes, aidInfo, version],
+  );
+
   // ── Selection merge (kept gesture: several pages/files → one file) ──────
   const selectedNodes = model ? [...selected].map((id) => model.nodes[id]).filter(Boolean) : [];
   const canMergeSelection =
@@ -589,8 +686,8 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
     file.text().then((text) => {
       try {
         const aids = parseManifest(JSON.parse(text));
-        aidRef.current = aids;
-        setAidInfo(aids);
+        manualAidsRef.current = aids;
+        setAidInfo([...(archiveAids || []), ...aids]);
         setFocusedCollectionId(null);
         mutate((m) => {
           for (const aid of aids) applyFindingAid(m, aid);
@@ -608,6 +705,7 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
         className="name-input"
         value={node.kind === 'file' ? node.title : node.name}
         placeholder={placeholder}
+        list={node.kind === 'file' ? undefined : `fm-suggest-${node.kind}`}
         ref={(el) => {
           if (el && focusNameId === node.id) {
             el.focus({ preventScroll: true });
@@ -643,21 +741,17 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
 
   // ── Save ────────────────────────────────────────────────────────────────
   const savePlan = useMemo(() => (model ? buildSavePlan(model) : null), [model]);
+  // Same unchanged-test the save itself uses (metadata AND — with a chosen
+  // archive — physical location), so the button count and the save agree.
+  // `version` is depended on without being read: entryUnchanged reads the
+  // mutable corpus Map, which version tracks.
   const saveStats = useMemo(() => {
     if (!savePlan) return null;
     let unchanged = 0;
     let toWrite = 0;
     for (const unit of savePlan.units) {
       for (const f of unit.files) {
-        const p = f.pristineFileId ? getParsed(f.pristineFileId) : null;
-        if (
-          p &&
-          p.box === unit.box &&
-          p.folder === unit.folder &&
-          p.collection === unit.collection &&
-          p.archiveName === unit.archiveName &&
-          (p.title || '') === (f.title || '')
-        ) {
+        if (entryUnchanged({ nodes, destRootId: archiveDest?.id ?? null, unit, entry: f })) {
           unchanged++;
         } else {
           toWrite++;
@@ -665,14 +759,22 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
       }
     }
     return { unchanged, toWrite };
-  }, [savePlan, getParsed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savePlan, nodes, archiveDest, version]);
 
   async function runSave() {
     setProgress([]);
     const log = (msg) => setProgress((p) => [...(p || []), msg]);
     let reloadNote = 'Refreshing…';
     try {
-      const res = await saveFiling({ backend, nodes, roots, plan: savePlan, onProgress: log });
+      const res = await saveFiling({
+        backend,
+        nodes,
+        roots,
+        plan: savePlan,
+        destRootId: archiveDest?.id ?? null,
+        onProgress: log,
+      });
       if (res.failure) {
         // saveFiling stopped at the first failed write. Nothing was trashed
         // unless its replacement was confirmed written, so the worst case on
@@ -825,6 +927,14 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
         {node.origin && model.nodes[node.origin] && (
           <span className="badge origin-badge" title="spilled from an exploded card">
             ⟲
+          </span>
+        )}
+        {suggestionIds.has(node.id) && (
+          <span
+            className="badge suggest-badge"
+            title="Tagged at capture time — its placement matches a known slot. Use “Accept suggested” or drag it yourself."
+          >
+            💡
           </span>
         )}
         {thumb ? (
@@ -1172,6 +1282,52 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
     <div className="filing-main" style={{ position: 'relative' }}>
       <div className="filing-head">
         <h2>Filing{allScopes ? '' : `: ${scopeNode?.name}`}</h2>
+        <div className="archive-dest">
+          <span className="dest-label">File into:</span>
+          {backend.kind === 'drive' && !archiveScans ? (
+            <button
+              className="btn small"
+              title="One-time setup: point the app at the Archive Scans folder you created in Drive"
+              onClick={onSetupArchiveScans}
+            >
+              Pick your “Archive Scans” folder…
+            </button>
+          ) : (
+            <>
+              <select
+                className="dest-select"
+                value={archiveDest?.id || ''}
+                onChange={(e) => {
+                  const a = archives.find((x) => x.id === e.target.value);
+                  if (a) onSelectArchive(a);
+                }}
+              >
+                <option value="" disabled>
+                  {archives.length ? '— choose an archive —' : '(no archives found)'}
+                </option>
+                {archives.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+              {backend.kind === 'drive' && (
+                <button
+                  className="mini-btn"
+                  title="Change where Archive Scans lives (different account, moved folder)"
+                  onClick={onSetupArchiveScans}
+                >
+                  ⚙
+                </button>
+              )}
+            </>
+          )}
+          {archivesError && (
+            <span className="dest-error" title={archivesError}>
+              couldn’t list archives — re-pick via ⚙
+            </span>
+          )}
+        </div>
         <label className="scope-toggle">
           <input
             type="checkbox"
@@ -1251,7 +1407,10 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
                 {columns[kind].filter((c) => c.type === 'card').length}
               </span>
             </div>
-            <div className="fcol-body">
+            <div
+              className={`fcol-body ${dropTarget === `col-${kind}` ? 'col-drop-target' : ''}`}
+              data-drop={JSON.stringify({ type: 'column', kind })}
+            >
               {columns[kind].map((entry) =>
                 entry.type === 'bucket'
                   ? renderBucketCard(entry)
@@ -1323,6 +1482,15 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
             ⧉ Merge {selected.size} selected
           </button>
         )}
+        {suggestions.length > 0 && (
+          <button
+            className="btn suggest-btn"
+            title="Place every file whose capture-time tags cleanly match a known slot — ambiguous ones go to (or stay in) ? buckets"
+            onClick={doAcceptSuggested}
+          >
+            💡 Accept {suggestions.length} suggested
+          </button>
+        )}
         <span className="spacer" />
         <button className="btn" disabled={!undoStack.current.length} onClick={undo}>
           ↩ Undo
@@ -1332,13 +1500,42 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
         </button>
         <button
           className="btn primary"
-          disabled={!saveStats || saveStats.toWrite === 0}
+          disabled={
+            !saveStats || saveStats.toWrite === 0 || (backend.kind === 'drive' && !archiveDest)
+          }
+          title={
+            backend.kind === 'drive' && !archiveDest
+              ? 'Choose an archive to file into first (top of the board)'
+              : undefined
+          }
           onClick={() => setSaveOpen(true)}
         >
           {backend.kind === 'demo' ? 'Save (sample)' : 'Save to Drive'}
           {saveStats && saveStats.toWrite > 0 ? ` — ${saveStats.toWrite}` : ''}
         </button>
       </div>
+
+      {/* Established-name suggestions for every container name input. */}
+      <datalist id="fm-suggest-folder">
+        {nameSuggestions.folders.map((v) => (
+          <option key={v} value={v} />
+        ))}
+      </datalist>
+      <datalist id="fm-suggest-box">
+        {nameSuggestions.boxes.map((v) => (
+          <option key={v} value={v} />
+        ))}
+      </datalist>
+      <datalist id="fm-suggest-collection">
+        {nameSuggestions.collections.map((v) => (
+          <option key={v} value={v} />
+        ))}
+      </datalist>
+      <datalist id="fm-suggest-archive">
+        {nameSuggestions.archives.map((v) => (
+          <option key={v} value={v} />
+        ))}
+      </datalist>
 
       {preview &&
         preview.length > 0 &&
@@ -1456,7 +1653,7 @@ export default function FilingMode({ backend, nodes, scopeId, roots, onReload })
                   {[...new Set(savePlan.units.map((u) => u.collection))].map((c, i) => (
                     <span key={c}>
                       {i > 0 && ', '}
-                      <b>Archive Capture — {c}</b>
+                      <b>{archiveDest ? `${archiveDest.name} / ${c}` : `Archive Capture — ${c}`}</b>
                     </span>
                   ))}
                   . Boxes and Folders become real nested folders; assembled documents become

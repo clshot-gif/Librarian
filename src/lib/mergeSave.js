@@ -143,9 +143,40 @@ function findLoadedChild(nodes, parentId, name) {
   return null;
 }
 
+// Is a pristine file already exactly where this unit would put it? Metadata
+// must match; when a canonical destination archive is active (destRootId),
+// the file must ALSO physically sit in the unit's already-existing folder
+// chain under it — a file whose tags were right all along but which still
+// lives in a capture-time staging tree needs the move, not a skip. Shared
+// with FilingMode's save-count so the button and the save agree.
+export function entryUnchanged({ nodes, destRootId, unit, entry }) {
+  if (!entry.pristineFileId) return false;
+  const node = nodes.get(entry.pristineFileId);
+  const p = node?.parsed;
+  if (!p) return false;
+  const skippedLevels = [!unit.box && 'box', !unit.folder && 'folder'].filter(Boolean);
+  const metaEqual =
+    p.box === unit.box &&
+    p.folder === unit.folder &&
+    p.collection === unit.collection &&
+    p.archiveName === unit.archiveName &&
+    (p.title || '') === (entry.title || '') &&
+    (p.skippedLevels || []).join(',') === skippedLevels.join(',');
+  if (!metaEqual) return false;
+  if (!destRootId) return true;
+  let pid = findLoadedChild(nodes, destRootId, unit.collection);
+  if (pid && unit.box) pid = findLoadedChild(nodes, pid, `Box ${unit.box}`);
+  if (pid && unit.folder) pid = findLoadedChild(nodes, pid, `Folder ${unit.folder}`);
+  return Boolean(pid && node.parentId === pid);
+}
+
 // plan: buildSavePlan(state) output — {units:[{archiveName, collection,
 // box, folder, files:[{title, refs, pristineFileId}]}], skipped}.
 // roots: the loaded root folders [{id, name}].
+// destRootId: the chosen Archive Scans archive folder (null = legacy
+// behavior, `Archive Capture — <collection>` roots at the Drive top level).
+// With a destination, every unit writes under it as
+// `<archive>/<collection>/Box n/Folder m` — bare collection folder names.
 //
 // Failure contract (this is the part that protects real scans): each file
 // entry is written inside its own try/catch. On the first failure the save
@@ -157,7 +188,7 @@ function findLoadedChild(nodes, parentId, name) {
 // doesn't exist. Instead of throwing, the failure is reported in the return
 // value ({...results, failure}) so the caller can show exactly what did and
 // didn't complete and reload to the real state.
-export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
+export async function saveFiling({ backend, nodes, roots, plan, destRootId = null, onProgress }) {
   const say = (msg) => onProgress?.(msg);
   const results = { filed: 0, merged: 0, unchanged: 0, trashed: 0, kept: 0 };
   const totalEntries = plan.units.reduce((n, u) => n + u.files.length, 0);
@@ -176,15 +207,26 @@ export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
 
   const getCollectionRoot = async (collection) => {
     if (collectionRoots.has(collection)) return collectionRoots.get(collection);
-    const rootName = `Archive Capture — ${collection}`;
     let id = null;
-    for (const r of roots) {
-      const n = nodes.get(r.id);
-      if (n && n.name === rootName) id = n.id;
-    }
-    if (!id) {
-      say(`Creating collection folder “${rootName}”…`);
-      id = await backend.createFolder(rootName, null);
+    if (destRootId) {
+      // Canonical: a bare-named collection folder directly under the chosen
+      // archive. The archive's subtree is loaded into the corpus when it's
+      // selected, so existing folders are found there — never duplicated.
+      id = findLoadedChild(nodes, destRootId, collection);
+      if (!id) {
+        say(`Creating collection folder “${collection}”…`);
+        id = await backend.createFolder(collection, destRootId);
+      }
+    } else {
+      const rootName = `Archive Capture — ${collection}`;
+      for (const r of roots) {
+        const n = nodes.get(r.id);
+        if (n && n.name === rootName) id = n.id;
+      }
+      if (!id) {
+        say(`Creating collection folder “${rootName}”…`);
+        id = await backend.createFolder(rootName, null);
+      }
     }
     collectionRoots.set(collection, id);
     return id;
@@ -250,14 +292,7 @@ export async function saveFiling({ backend, nodes, roots, plan, onProgress }) {
         if (entry.pristineFileId) {
           const node = nodes.get(entry.pristineFileId);
           const p = node.parsed;
-          const unchanged =
-            p.box === box &&
-            p.folder === folder &&
-            p.collection === collection &&
-            p.archiveName === archiveName &&
-            (p.title || '') === (entry.title || '') &&
-            (p.skippedLevels || []).join(',') === skippedLevels.join(',');
-          if (unchanged) {
+          if (entryUnchanged({ nodes, destRootId, unit, entry })) {
             results.unchanged++;
             keptInPlace.add(entry.pristineFileId);
             entriesDone++;

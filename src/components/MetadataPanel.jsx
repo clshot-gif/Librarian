@@ -102,6 +102,7 @@ export default function MetadataPanel({
   draft,
   nodes,
   version,
+  nameSuggestions,
   currentPage,
   user,
   onField,
@@ -130,10 +131,14 @@ export default function MetadataPanel({
       </div>
 
       <div className="fields-grid">
+        {/* Suggestions = names already established (manifest slots + what's
+            actually on the loaded files), so an established name never gets
+            retyped slightly wrong and fragments a box in two. */}
         <div className="field">
           <label>Archive Name</label>
           <input
             value={draft.archiveName}
+            list="meta-suggest-archive"
             onChange={(e) => onField('archiveName', e.target.value)}
             placeholder="e.g. Five Forks"
           />
@@ -142,6 +147,7 @@ export default function MetadataPanel({
           <label>Collection</label>
           <input
             value={draft.collection}
+            list="meta-suggest-collection"
             onChange={(e) => onField('collection', e.target.value)}
             placeholder="e.g. Good Poems"
           />
@@ -150,6 +156,7 @@ export default function MetadataPanel({
           <label>Box</label>
           <input
             value={draft.box}
+            list="meta-suggest-box"
             onChange={(e) => onField('box', e.target.value)}
             placeholder="e.g. 3 or XIV"
           />
@@ -158,10 +165,31 @@ export default function MetadataPanel({
           <label>Folder</label>
           <input
             value={draft.folder}
+            list="meta-suggest-folder"
             onChange={(e) => onField('folder', e.target.value)}
             placeholder="e.g. 2"
           />
         </div>
+        <datalist id="meta-suggest-archive">
+          {(nameSuggestions?.archives || []).map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
+        <datalist id="meta-suggest-collection">
+          {(nameSuggestions?.collections || []).map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
+        <datalist id="meta-suggest-box">
+          {(nameSuggestions?.boxes || []).map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
+        <datalist id="meta-suggest-folder">
+          {(nameSuggestions?.folders || []).map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
         <div className="field" style={{ gridColumn: '1 / -1' }}>
           <label>File Title</label>
           <input

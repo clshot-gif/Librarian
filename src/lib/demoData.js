@@ -6,6 +6,7 @@
 import { serializeProps } from './metadata.js';
 import { buildFileName } from './naming.js';
 import { buildNotesContent } from './notesPage.js';
+import fwhcSeed from './findingAidSeed.json';
 
 let idCounter = 0;
 const nid = () => `demo-${++idCounter}`;
@@ -396,5 +397,61 @@ export function buildDemoCorpus() {
     }),
   );
 
-  return { nodes, rootIds: [root1.id, root2.id] };
+  // ── The canonical Archive Scans root ──────────────────────────────────
+  // In real Drive this is created entirely by hand (the app never makes it);
+  // the sample corpus bakes one in so the full flow — choose an archive from
+  // the in-app list, fetch its Contents/manifest.json, file into it — works
+  // with zero Google setup. It is NOT a picked root: only the folders under
+  // it that get chosen as a filing destination are loaded into the corpus.
+  const scans = folder('Archive Scans', null);
+
+  // Archive 1: the FWHC demo — manifest based on the real Duke finding-aid
+  // seed, with a small sample box inventory added (the real seed's `boxes`
+  // is empty because the source site blocks automated retrieval).
+  const duke = folder('Duke — FWHC Records', scans.id);
+  const dukeContents = folder('Contents', duke.id);
+  const dukeManifest = {
+    ...fwhcSeed,
+    boxes: [
+      { box: '1', title: 'Administrative records', folders: ['Correspondence', 'Board minutes'] },
+      { box: '4', folders: ['Clinic intake forms', 'Newsletters'] },
+    ],
+  };
+
+  // Archive 2: Five Forks — its manifest describes the Good Poems collection
+  // that the sample's Shape-1 tree already holds, so "Accept all suggested"
+  // has real matches to demonstrate (capture-tagged files → manifest slots).
+  const fiveForks = folder('Five Forks', scans.id);
+  const ffContents = folder('Contents', fiveForks.id);
+  const ffManifest = {
+    // Matches the archiveName the sample's capture-tagged files carry, so
+    // suggestion matching (tag ↔ manifest slot) lines up.
+    repository: { name: 'Five Forks' },
+    collection: { title: 'Good Poems', dates: '1938-1954' },
+    boxes: [
+      { box: '3', folders: ['2', '3'] },
+      { box: '5', folders: ['1', '4'] },
+    ],
+  };
+
+  const manifestFile = (parentId, json) => ({
+    id: nid(),
+    name: 'manifest.json',
+    isFolder: false,
+    parentId,
+    properties: {},
+    textContent: JSON.stringify(json, null, 2),
+  });
+
+  nodes.push(
+    scans,
+    duke,
+    dukeContents,
+    manifestFile(dukeContents.id, dukeManifest),
+    fiveForks,
+    ffContents,
+    manifestFile(ffContents.id, ffManifest),
+  );
+
+  return { nodes, rootIds: [root1.id, root2.id], archiveScansId: scans.id };
 }

@@ -59,6 +59,67 @@ export async function loadCorpus(backend, roots, onProgress) {
   return nodes;
 }
 
+// Load ONE additional root's subtree into an existing corpus — used when an
+// archive destination is chosen from the Archive Scans list, so its real
+// structure (existing collections/boxes/folders and already-filed files)
+// joins the working tree without reloading the picked sources.
+// `excludeNames`: direct children of the root (by name, case-insensitive) to
+// skip entirely — the archive's `Contents/` folder is app plumbing (the
+// manifest + its source material), not scans to organize.
+export async function loadSubtree(backend, nodes, root, { excludeNames = [] } = {}) {
+  const excluded = new Set(excludeNames.map((n) => n.trim().toLowerCase()));
+  nodes.set(root.id, {
+    id: root.id,
+    name: root.name,
+    isFolder: true,
+    parentId: null,
+    rootId: root.id,
+    children: [],
+    parsed: null,
+  });
+  let frontier = [root.id];
+  while (frontier.length > 0) {
+    const batches = await Promise.all(frontier.map((fid) => backend.listChildren(fid)));
+    const next = [];
+    frontier.forEach((fid, i) => {
+      const parent = nodes.get(fid);
+      for (const child of batches[i]) {
+        if (fid === root.id && child.isFolder && excluded.has(child.name.trim().toLowerCase())) {
+          continue;
+        }
+        const node = {
+          id: child.id,
+          name: child.name,
+          isFolder: child.isFolder,
+          parentId: fid,
+          rootId: root.id,
+          children: [],
+          parsed: child.isFolder ? null : parseProps(child.properties),
+        };
+        nodes.set(node.id, node);
+        parent.children.push(node.id);
+        if (child.isFolder) next.push(child.id);
+      }
+    });
+    frontier = next;
+  }
+  sortChildren(nodes);
+  computeHighlights(nodes);
+}
+
+// Drop a previously-loaded root (and everything under it) from the corpus —
+// the inverse of loadSubtree, used when the archive destination changes.
+export function removeSubtree(nodes, rootId) {
+  const stack = [rootId];
+  while (stack.length) {
+    const id = stack.pop();
+    const n = nodes.get(id);
+    if (!n) continue;
+    if (n.children) stack.push(...n.children);
+    nodes.delete(id);
+  }
+}
+
 export function sortChildren(nodes) {
   for (const node of nodes.values()) {
     if (!node.isFolder) continue;

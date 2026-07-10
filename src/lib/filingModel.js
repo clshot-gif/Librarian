@@ -149,7 +149,17 @@ export function noArchiveNode(state) {
 //   nothing at all → loose; single-page scans enter as raw pages (they're
 //     photos of pages, waiting to be built into documents), multi-page PDFs
 //     as files.
-export function buildModel(corpusNodes, scopeIds) {
+//
+// When a canonical destination archive is active (opts.archiveRootIds — the
+// corpus roots that are Archive Scans archive folders), the metadata→position
+// rules above only apply to files whose PHYSICAL location inside one of
+// those archives agrees with their tags. Everything else that carries tags
+// (a capture-time-tagged file still sitting in its Archive Capture staging
+// tree, a file someone moved by hand) enters loose with its tags kept as a
+// hint — a *suggestion*, resolved in bulk by applySuggestedPlacements rather
+// than silently inventing containers on the board. With no destination
+// (opts omitted), the original tags-place-everything behavior is unchanged.
+export function buildModel(corpusNodes, scopeIds, opts = {}) {
   const state = createState();
   const files = [];
   const walk = (id) => {
@@ -184,7 +194,10 @@ export function buildModel(corpusNodes, scopeIds) {
     }
     let parentId = null;
     let bucket = false;
-    if (p.collection) {
+    const destMode = (opts.archiveRootIds?.size || 0) > 0;
+    const canonical =
+      !destMode || (opts.archiveRootIds.has(n.rootId) && chainMatchesTags(corpusNodes, n, p));
+    if (p.collection && canonical) {
       const arch = p.archiveName ? ensureArchive(state, p.archiveName) : noArchiveNode(state);
       const coll = ensureChild(state, arch.id, 'collection', p.collection);
       if (p.box) {
@@ -213,6 +226,25 @@ export function buildModel(corpusNodes, scopeIds) {
     });
   }
   return state;
+}
+
+// Does a file's physical folder chain agree with its tagged placement?
+// Walks up from the file: `Folder <f>` (if tagged), then `Box <b>` (if
+// tagged), then a folder named exactly the collection (the canonical bare
+// name under an archive folder; the legacy `Archive Capture — X` form is
+// accepted too). A mismatch anywhere means location and metadata disagree.
+function chainMatchesTags(corpusNodes, node, p) {
+  const expected = [];
+  if (p.folder) expected.push(`Folder ${p.folder}`);
+  if (p.box) expected.push(`Box ${p.box}`);
+  let cur = node.parentId != null ? corpusNodes.get(node.parentId) : null;
+  for (const name of expected) {
+    if (!cur || cur.name !== name) return false;
+    cur = cur.parentId != null ? corpusNodes.get(cur.parentId) : null;
+  }
+  return Boolean(
+    cur && (cur.name === p.collection || cur.name === `Archive Capture — ${p.collection}`),
+  );
 }
 
 function rawMeta(parsed, pageIndex, label) {
@@ -249,8 +281,94 @@ export function applyFindingAid(state, aid) {
   return coll.id;
 }
 
+// A chosen destination archive shows on the board even before any manifest
+// or file mentions it — a manifest-less archive is a valid destination whose
+// columns simply start blank.
+export function ensureArchiveNode(state, name) {
+  return ensureArchive(state, name, { expected: true }).id;
+}
+
+// ── Suggested placements: capture-time tags → known slots ─────────────────
+// For every loose file whose hint (its box/folder/collection tags) can be
+// cross-referenced against slots the board already knows — real containers
+// or finding-aid expected ones — propose a placement. Conservative on
+// purpose: a placement only fully resolves when EVERY tagged level matches
+// exactly one known slot (case-insensitive); a file whose collection matches
+// but whose box/folder tag matches nothing known is proposed for the deepest
+// clean match's `?` bucket instead of force-fitting; a file matching nothing
+// stays loose and untouched. Returns [{id, targetId, resolve}] — resolve
+// true nests under targetId, false drops into its `?` bucket.
+export function suggestedPlacements(state) {
+  const eq = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+  const all = Object.values(state.nodes);
+  const childMatch = (parentId, kind, name) =>
+    all.filter((c) => c.kind === kind && c.parentId === parentId && !c.bucket && eq(c.name, name));
+  const out = [];
+  for (const n of all) {
+    if (n.kind !== 'file') continue;
+    if (n.parentId !== null || n.origin) continue; // loose only, not mid-explode
+    const hint = n.hint;
+    if (!hint?.collection) continue;
+    let colls = all.filter(
+      (c) => c.kind === 'collection' && !c.bucket && eq(c.name, hint.collection),
+    );
+    if (hint.archiveName) {
+      colls = colls.filter((c) => {
+        const arch = c.parentId != null ? state.nodes[c.parentId] : null;
+        return arch?.kind === 'archive' && !arch.special && eq(arch.name, hint.archiveName);
+      });
+    }
+    if (colls.length !== 1) continue; // nothing known (or ambiguous) — leave loose
+    let target = colls[0];
+    // A folder tag with no box tag can't resolve a nesting chain cleanly.
+    let clean = !(hint.folder && !hint.box);
+    if (clean && hint.box) {
+      const boxes = childMatch(target.id, 'box', hint.box);
+      if (boxes.length === 1) target = boxes[0];
+      else clean = false;
+    }
+    if (clean && hint.box && hint.folder) {
+      const folders = childMatch(target.id, 'folder', hint.folder);
+      if (folders.length === 1) target = folders[0];
+      else clean = false;
+    }
+    if (clean) {
+      out.push({ id: n.id, targetId: target.id, resolve: true });
+    } else if (LEVEL[target.kind] - LEVEL.file >= 2) {
+      // Partial match → the deepest clean container's `?` bucket ("belongs
+      // under this, slot unknown") — exactly what that bucket means.
+      out.push({ id: n.id, targetId: target.id, resolve: false });
+    }
+  }
+  return out;
+}
+
+// The one-click bulk action: apply every suggestion at once (Carter's call:
+// no per-file confirmation — the button itself is the confirmation).
+export function applySuggestedPlacements(state) {
+  let resolved = 0;
+  let bucketed = 0;
+  for (const pl of suggestedPlacements(state)) {
+    const drag = state.nodes[pl.id];
+    const target = state.nodes[pl.targetId];
+    if (!drag || !target) continue;
+    drag.parentId = target.id;
+    drag.bucket = !pl.resolve;
+    drag.origin = null;
+    drag.order = state.seq++;
+    if (pl.resolve) {
+      if (target.expected) target.expected = false;
+      resolved++;
+    } else {
+      bucketed++;
+    }
+  }
+  return { resolved, bucketed };
+}
+
 // ── Drag → drop legality ───────────────────────────────────────────────────
 // target: {type:'node', id} | {type:'bucket', parentId} | {type:'new', kind}
+//         | {type:'column', kind}  (the column body itself — explode target)
 // Returns an operation name or null (invalid).
 export function dropOperation(state, dragId, target) {
   const drag = state.nodes[dragId];
@@ -263,6 +381,16 @@ export function dropOperation(state, dragId, target) {
     // Only pages can land here — everything else files into containers.
     if (target.kind === 'file') return drag.kind === 'raw' ? 'newSingleFile' : null;
     return 'newContainer';
+  }
+  if (target.type === 'column') {
+    // Dropping a composite card on a LOWER column is a drag-triggered
+    // explode: decompose it down to that column's level in one motion (the
+    // 💥 button, repeated per level). A multi-page PDF dropped straight onto
+    // Raw tears all the way down to single pages.
+    if (!['file', 'folder', 'box'].includes(drag.kind)) return null;
+    if (LEVEL[target.kind] >= LEVEL[drag.kind]) return null;
+    const hasPieces = drag.source || childrenOf(state, drag.id).length > 0;
+    return hasPieces ? 'explodeTo' : null;
   }
   if (target.type === 'bucket') {
     const parent = state.nodes[target.parentId];
@@ -333,6 +461,12 @@ export function applyDrop(state, dragId, target, getParsed) {
   if (!op) return null;
   const drag = state.nodes[dragId];
   let focusId = null;
+
+  if (op === 'explodeTo') {
+    const spilled = explodeToLevel(state, dragId, target.kind, getParsed);
+    cleanupShells(state);
+    return { op, focusId: null, spilled };
+  }
 
   if (op === 'newFile') {
     const other = state.nodes[target.id];
@@ -479,6 +613,35 @@ export function explodeNode(state, id, getParsed) {
     child.origin = id;
   }
   return spilled.map((c) => c.id);
+}
+
+// Multi-level, drag-triggered explode: decompose `id` recursively until no
+// piece of it sits above `targetKind`'s level — the per-level explodeNode
+// applied down the tree, not a new decomposition path. Intermediate
+// containers are left behind exactly as the 💥 button leaves them (empty
+// spilled husks with origin pointers, gatherable stepwise, removable); undo
+// is the clean way back from a multi-level explode. Returns the ids of the
+// pieces that landed at or below the target level.
+export function explodeToLevel(state, id, targetKind, getParsed) {
+  const targetLevel = LEVEL[targetKind];
+  const landed = [];
+  const queue = [id];
+  while (queue.length) {
+    const nodeId = queue.shift();
+    const node = state.nodes[nodeId];
+    if (!node) continue;
+    if (LEVEL[node.kind] <= targetLevel) {
+      if (nodeId !== id) landed.push(nodeId);
+      continue;
+    }
+    const pieces = explodeNode(state, nodeId, getParsed);
+    for (const pieceId of pieces) {
+      const piece = state.nodes[pieceId];
+      if (piece && LEVEL[piece.kind] > targetLevel) queue.push(pieceId);
+      else if (piece) landed.push(pieceId);
+    }
+  }
+  return landed;
 }
 
 // Pop a single page out of a file, back to the Unclassified column as its own

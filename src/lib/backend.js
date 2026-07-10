@@ -39,6 +39,12 @@ export class DriveBackend {
   move(fileId, newParentId, oldParentId) {
     return drive.moveFile(this.token, fileId, newParentId, oldParentId);
   }
+  // Parent folder ids (Drive files effectively have one). Used to walk a
+  // picked folder's ancestry up to Archive Scans.
+  async getParents(fileId) {
+    const meta = await drive.getFileMeta(this.token, fileId);
+    return meta.parents || [];
+  }
   createFolder(name, parentId) {
     return drive.createFolder(this.token, name, parentId);
   }
@@ -53,9 +59,13 @@ export class DriveBackend {
 export class DemoBackend {
   constructor() {
     this.kind = 'demo';
-    const { nodes, rootIds } = buildDemoCorpus();
+    const { nodes, rootIds, archiveScansId } = buildDemoCorpus();
     this.nodes = new Map(nodes.map((n) => [n.id, n]));
     this.rootIds = rootIds;
+    // The sample corpus bakes in an Archive Scans root, so the canonical
+    // filing flow (choose an archive, fetch its manifest) is exercisable
+    // with zero Google setup — no localStorage/Picker involved in demo mode.
+    this.archiveScansId = archiveScansId;
     this.bytesCache = new Map();
     this.nextId = 1;
   }
@@ -71,7 +81,12 @@ export class DemoBackend {
   async getPdfBytes(fileId) {
     if (this.bytesCache.has(fileId)) return this.bytesCache.get(fileId);
     const node = this.nodes.get(fileId);
-    const bytes = node.demoSpec ? await buildDemoPdf(node.demoSpec) : new Uint8Array();
+    // Text files (the demo manifest.json) carry their content directly.
+    const bytes = node.textContent
+      ? new TextEncoder().encode(node.textContent)
+      : node.demoSpec
+        ? await buildDemoPdf(node.demoSpec)
+        : new Uint8Array();
     this.bytesCache.set(fileId, bytes);
     return bytes;
   }
@@ -92,6 +107,10 @@ export class DemoBackend {
   }
   async move(fileId, newParentId) {
     this.nodes.get(fileId).parentId = newParentId;
+  }
+  async getParents(fileId) {
+    const node = this.nodes.get(fileId);
+    return node?.parentId != null ? [node.parentId] : [];
   }
   async createFolder(name, parentId) {
     const id = `demo-new-${this.nextId++}`;

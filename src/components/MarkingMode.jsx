@@ -8,6 +8,7 @@ import { serializeProps } from '../lib/metadata.js';
 import { displayName } from '../lib/naming.js';
 import { refileFile } from '../lib/refile.js';
 import { rememberTag } from '../lib/tagStore.js';
+import { collectNameSuggestions } from '../lib/nameSuggest.js';
 
 // What kind of page is the viewer showing? Content pages are drawable;
 // the notes page and the clean-original backups are read-only.
@@ -34,6 +35,7 @@ export default function MarkingMode({
   fileId,
   user,
   mutate,
+  archiveAids,
   onDirtyChange,
 }) {
   const node = fileId ? nodes.get(fileId) : null;
@@ -82,6 +84,15 @@ export default function MarkingMode({
   }, [fileId]);
 
   const info = useMemo(() => (draft ? pageInfo(pageIndex, draft) : null), [pageIndex, draft]);
+
+  // Established Archive/Collection/Box/Folder names (manifest + loaded
+  // corpus), offered as suggestions in the metadata fields. Recomputed when
+  // the corpus version changes, same idiom as the tag pools.
+  const nameSuggestions = useMemo(
+    () => collectNameSuggestions(nodes, archiveAids),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nodes, archiveAids, version],
+  );
 
   function markDirty() {
     setDirty(true);
@@ -208,7 +219,14 @@ export default function MarkingMode({
         (orig.folder || '') !== (d.folder || '') ||
         (orig.title || '') !== (d.title || '');
       if (placementChanged && (d.collection || '').trim()) {
-        await refileFile({ backend, nodes, roots, fileId, parsed: d });
+        // Anchor the folder chain: if the file already lives inside a chosen
+        // Archive Scans archive, stay under it; else use the session's
+        // destination archive if one is selected; else the legacy
+        // `Archive Capture — <collection>` root behavior.
+        const destRoot = roots.find((r) => r.archiveDest);
+        const fileRootIsArchive = roots.some((r) => r.id === node.rootId && r.archiveDest);
+        const archiveRootId = fileRootIsArchive ? node.rootId : destRoot?.id || null;
+        await refileFile({ backend, nodes, roots, fileId, parsed: d, archiveRootId });
         // refileFile already mutated the tree in place; refresh + re-render.
         mutate(() => {});
       } else {
@@ -345,6 +363,7 @@ export default function MarkingMode({
         draft={draft}
         nodes={nodes}
         version={version}
+        nameSuggestions={nameSuggestions}
         currentPage={currentContentPage()}
         user={user}
         onField={setField}

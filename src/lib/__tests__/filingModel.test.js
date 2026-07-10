@@ -6,6 +6,7 @@ import {
   applyDrop,
   mergeSelection,
   explodeNode,
+  explodeToLevel,
   separatePage,
   gatherBack,
   computeCompleteness,
@@ -14,7 +15,10 @@ import {
   looseNodes,
   noArchiveNode,
   suggestTargets,
+  suggestedPlacements,
+  applySuggestedPlacements,
   ancestry,
+  LEVEL,
 } from '../filingModel.js';
 
 // Minimal corpus factory matching corpus.js's node shape.
@@ -518,6 +522,200 @@ describe('save plan', () => {
     ]);
     expect(unit.files[1].refs).toEqual([{ fileId: 'lump', pageIndex: 2 }]);
     expect(looseNodes(state)).toHaveLength(0);
+  });
+});
+
+describe('destination-archive mode: physical location decides placement', () => {
+  // A corpus with real folder chains and rootIds: the canonical archive
+  // (a chosen Archive Scans folder, root 'arch') holding one correctly-filed
+  // file, plus a capture-time staging tree with tagged files that need
+  // migrating in.
+  function makeTreeCorpus(files) {
+    const nodes = new Map();
+    const put = (n) => nodes.set(n.id, { children: [], parsed: null, ...n });
+    put({ id: 'arch', name: 'Five Forks', isFolder: true, parentId: null, rootId: 'arch' });
+    put({ id: 'coll', name: 'Good Poems', isFolder: true, parentId: 'arch', rootId: 'arch' });
+    put({ id: 'box3', name: 'Box 3', isFolder: true, parentId: 'coll', rootId: 'arch' });
+    put({ id: 'f2', name: 'Folder 2', isFolder: true, parentId: 'box3', rootId: 'arch' });
+    put({
+      id: 'stage',
+      name: 'Archive Capture — Good Poems',
+      isFolder: true,
+      parentId: null,
+      rootId: 'stage',
+    });
+    for (const f of files) {
+      put({
+        id: f.id,
+        name: `${f.id}.pdf`,
+        isFolder: false,
+        parentId: f.parentId,
+        rootId: f.parentId === 'stage' ? 'stage' : 'arch',
+        parsed: {
+          box: '',
+          folder: '',
+          collection: '',
+          archiveName: '',
+          title: '',
+          tags: [],
+          important: false,
+          hasMarkup: false,
+          capturedAt: '2026-01-01T00:00:00Z',
+          pageCount: 2,
+          omgPages: [],
+          unmarkedBackupPages: [],
+          comments: [],
+          tagLog: [],
+          omgLog: [],
+          notesPageIndex: null,
+          ...f.parsed,
+        },
+      });
+    }
+    for (const n of nodes.values()) {
+      if (n.parentId != null) nodes.get(n.parentId).children.push(n.id);
+    }
+    return nodes;
+  }
+
+  const tags = { collection: 'Good Poems', archiveName: 'Five Forks', box: '3', folder: '2' };
+  const corpus = makeTreeCorpus([
+    { id: 'inplace', parentId: 'f2', parsed: tags },
+    { id: 'staged', parentId: 'stage', parsed: tags },
+    { id: 'oddbox', parentId: 'stage', parsed: { ...tags, box: '9', folder: '' } },
+    { id: 'unknowncoll', parentId: 'stage', parsed: { ...tags, collection: 'Mystery Papers' } },
+  ]);
+  const opts = { archiveRootIds: new Set(['arch']) };
+
+  it('a file physically where its tags say (inside the archive) loads placed', () => {
+    const state = buildModel(corpus, ['arch', 'stage'], opts);
+    const file = find(state, (n) => n.source?.fileId === 'inplace');
+    expect(file.parentId).not.toBe(null);
+    expect(ancestry(state, file.id).map((c) => c.state)).toEqual([
+      'resolved',
+      'resolved',
+      'resolved',
+      'resolved',
+    ]);
+  });
+
+  it('tagged files elsewhere load loose — tags become suggestions, not silent container creation', () => {
+    const state = buildModel(corpus, ['arch', 'stage'], opts);
+    for (const id of ['staged', 'oddbox', 'unknowncoll']) {
+      expect(find(state, (n) => n.source?.fileId === id).parentId).toBe(null);
+    }
+    // No 'Box 9' or 'Mystery Papers' container was invented from tags.
+    expect(find(state, (n) => n.kind === 'box' && n.name === '9')).toBeUndefined();
+    expect(find(state, (n) => n.kind === 'collection' && n.name === 'Mystery Papers')).toBe(
+      undefined,
+    );
+  });
+
+  it('without a destination (no opts) the legacy tags-place-everything behavior is unchanged', () => {
+    const state = buildModel(corpus, ['arch', 'stage']);
+    const staged = find(state, (n) => n.source?.fileId === 'staged');
+    expect(staged.parentId).not.toBe(null);
+  });
+
+  it('suggests clean full matches for resolve, partial matches for the ? bucket, nothing for unknown collections', () => {
+    const state = buildModel(corpus, ['arch', 'stage'], opts);
+    const byFile = (id) =>
+      suggestedPlacements(state).find((s) => state.nodes[s.id].source?.fileId === id);
+    const staged = byFile('staged');
+    expect(staged.resolve).toBe(true);
+    expect(state.nodes[staged.targetId].kind).toBe('folder'); // Folder 2 under Box 3
+
+    const oddbox = byFile('oddbox'); // box 9 matches nothing known
+    expect(oddbox.resolve).toBe(false);
+    expect(state.nodes[oddbox.targetId].kind).toBe('collection');
+
+    expect(byFile('unknowncoll')).toBeUndefined(); // stays loose, untouched
+  });
+
+  it('applySuggestedPlacements lands everything in one action, ambiguity into buckets', () => {
+    const state = buildModel(corpus, ['arch', 'stage'], opts);
+    const res = applySuggestedPlacements(state);
+    expect(res).toEqual({ resolved: 1, bucketed: 1 });
+    const staged = find(state, (n) => n.source?.fileId === 'staged');
+    expect(state.nodes[staged.parentId].kind).toBe('folder');
+    expect(staged.bucket).toBe(false);
+    const oddbox = find(state, (n) => n.source?.fileId === 'oddbox');
+    expect(oddbox.bucket).toBe(true);
+    expect(state.nodes[oddbox.parentId].kind).toBe('collection');
+    const unknown = find(state, (n) => n.source?.fileId === 'unknowncoll');
+    expect(unknown.parentId).toBe(null); // untouched
+  });
+
+  it('suggestions also match finding-aid expected slots, and accepting claims them', () => {
+    const emptyArchCorpus = makeTreeCorpus([{ id: 'staged2', parentId: 'stage', parsed: tags }]);
+    const state = buildModel(emptyArchCorpus, ['arch', 'stage'], opts);
+    applyFindingAid(state, {
+      archiveName: 'Five Forks',
+      collectionTitle: 'Good Poems',
+      boxes: [{ name: '3', folders: ['2'] }],
+    });
+    const [pl] = suggestedPlacements(state);
+    expect(pl.resolve).toBe(true);
+    const slot = state.nodes[pl.targetId];
+    expect(slot.kind).toBe('folder');
+    expect(slot.expected).toBe(true);
+    applySuggestedPlacements(state);
+    expect(slot.expected).toBe(false); // claimed by the drop, same as a manual drag
+  });
+});
+
+describe('drag-down explode (column drops)', () => {
+  function boxSetup() {
+    const corpus = makeCorpus([
+      {
+        id: 'lump',
+        parsed: { collection: 'C', archiveName: 'A', box: '5', folder: '4', pageCount: 4 },
+      },
+    ]);
+    const state = buildModel(corpus, ['root']);
+    return { state, getParsed: getParsedFrom(corpus) };
+  }
+
+  it('a multi-page file dropped on the Raw column tears down to single pages', () => {
+    const { state, getParsed } = boxSetup();
+    const file = find(state, (n) => n.kind === 'file');
+    expect(dropOperation(state, file.id, { type: 'column', kind: 'raw' })).toBe('explodeTo');
+    const res = applyDrop(state, file.id, { type: 'column', kind: 'raw' }, getParsed);
+    expect(res.op).toBe('explodeTo');
+    expect(res.spilled).toHaveLength(4);
+    expect(res.spilled.every((id) => state.nodes[id].kind === 'raw')).toBe(true);
+    expect(res.spilled.every((id) => state.nodes[id].parentId === null)).toBe(true);
+  });
+
+  it('a box dropped on the Raw column decomposes recursively through folders and files', () => {
+    const { state, getParsed } = boxSetup();
+    const box = find(state, (n) => n.kind === 'box');
+    const landed = explodeToLevel(state, box.id, 'raw', getParsed);
+    expect(landed).toHaveLength(4);
+    expect(landed.every((id) => state.nodes[id].kind === 'raw')).toBe(true);
+    // Intermediate pieces are ordinary spilled husks — gatherable stepwise.
+    const folder = find(state, (n) => n.kind === 'folder');
+    expect(folder.parentId).toBe(null);
+    expect(folder.origin).toBe(box.id);
+  });
+
+  it('a box dropped on the File column stops at files (they stay pristine)', () => {
+    const { state, getParsed } = boxSetup();
+    const box = find(state, (n) => n.kind === 'box');
+    const landed = explodeToLevel(state, box.id, 'file', getParsed);
+    expect(landed).toHaveLength(1);
+    const file = state.nodes[landed[0]];
+    expect(file.kind).toBe('file');
+    expect(file.source).toBeTruthy(); // not materialized — still one Drive PDF
+  });
+
+  it('upward or non-composite column drops are invalid', () => {
+    const { state } = boxSetup();
+    const folder = find(state, (n) => n.kind === 'folder');
+    const raw = find(state, (n) => n.kind === 'raw');
+    expect(dropOperation(state, folder.id, { type: 'column', kind: 'box' })).toBe(null);
+    expect(raw ? dropOperation(state, raw.id, { type: 'column', kind: 'raw' }) : null).toBe(null);
+    expect(LEVEL.raw).toBe(0); // guard the level table the rules lean on
   });
 });
 

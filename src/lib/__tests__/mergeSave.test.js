@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
-import { buildDocumentPdf, saveFiling } from '../mergeSave.js';
+import { buildDocumentPdf, saveFiling, entryUnchanged } from '../mergeSave.js';
 import { parseProps } from '../metadata.js';
 import { buildModel } from '../filingModel.js';
 
@@ -582,5 +582,106 @@ describe('saveFiling under mid-save failure', () => {
     expect(progress.some((m) => m.includes('Couldn’t trash') || m.includes("Couldn't trash"))).toBe(
       true,
     );
+  });
+});
+
+describe('saveFiling into a canonical archive destination (destRootId)', () => {
+  function minimalBackend() {
+    return {
+      folders: [],
+      moved: [],
+      renamed: [],
+      props: [],
+      listChildren() {
+        return Promise.resolve([]);
+      },
+      createFolder(name, parentId) {
+        const id = 'folder-' + this.folders.length;
+        this.folders.push({ id, name, parentId });
+        return Promise.resolve(id);
+      },
+      setProperties(fid, props) {
+        this.props.push({ fid, props });
+        return Promise.resolve();
+      },
+      rename(fid, name) {
+        this.renamed.push({ fid, name });
+        return Promise.resolve();
+      },
+      move(fid, to) {
+        this.moved.push({ fid, to });
+        return Promise.resolve();
+      },
+      trash() {
+        return Promise.resolve();
+      },
+    };
+  }
+
+  // Archive root 'arch' with its real (loaded) chain Good Poems/Box 3/
+  // Folder 2 holding U2; M has identical tags but still sits in a staging
+  // tree — the migration case.
+  function archiveCorpus() {
+    const nodes = new Map();
+    const put = (id, name, parentId, children, parsed = null) =>
+      nodes.set(id, { id, name, isFolder: parsed === null, parentId, children, parsed });
+    put('arch', 'Five Forks', null, ['gp']);
+    put('gp', 'Good Poems', 'arch', ['b3']);
+    put('b3', 'Box 3', 'gp', ['f2']);
+    put('f2', 'Folder 2', 'b3', ['U2']);
+    put('stage', 'Archive Capture — Good Poems', null, ['M']);
+    const tagged = () =>
+      parsedFor({ collection: 'Good Poems', archiveName: 'Five Forks', box: '3', folder: '2' });
+    nodes.set('U2', { id: 'U2', name: 'u2.pdf', parentId: 'f2', children: [], parsed: tagged() });
+    nodes.set('M', { id: 'M', name: 'm.pdf', parentId: 'stage', children: [], parsed: tagged() });
+    return nodes;
+  }
+
+  const unit = {
+    archiveName: 'Five Forks',
+    collection: 'Good Poems',
+    box: '3',
+    folder: '2',
+    files: [
+      { nodeId: 'n1', title: '', refs: [{ fileId: 'U2', pageIndex: null }], pristineFileId: 'U2' },
+      { nodeId: 'n2', title: '', refs: [{ fileId: 'M', pageIndex: null }], pristineFileId: 'M' },
+    ],
+  };
+  const plan = {
+    units: [unit],
+    skipped: { unresolved: 0, loose: 0, unnamed: 0, noCollection: 0, shells: 0 },
+  };
+
+  it('entryUnchanged requires matching location, not just matching metadata, when a destination is set', () => {
+    const nodes = archiveCorpus();
+    const [u2Entry, mEntry] = unit.files;
+    // Without a destination, metadata alone decides (legacy behavior).
+    expect(entryUnchanged({ nodes, destRootId: null, unit, entry: mEntry })).toBe(true);
+    // With one, the staged file needs the move; the in-place file doesn't.
+    expect(entryUnchanged({ nodes, destRootId: 'arch', unit, entry: mEntry })).toBe(false);
+    expect(entryUnchanged({ nodes, destRootId: 'arch', unit, entry: u2Entry })).toBe(true);
+  });
+
+  it('migrates the staged file into the existing archive chain without creating any folders', async () => {
+    const nodes = archiveCorpus();
+    const be = minimalBackend();
+    const res = await saveFiling({ backend: be, nodes, roots: [], plan, destRootId: 'arch' });
+
+    expect(res.unchanged).toBe(1); // U2 untouched
+    expect(res.filed).toBe(1); // M moved in place (no re-upload)
+    expect(be.folders).toEqual([]); // whole chain existed — nothing created
+    expect(be.moved).toEqual([{ fid: 'M', to: 'f2' }]);
+  });
+
+  it('creates missing chain folders lazily under the archive, never at the Drive root', async () => {
+    const nodes = archiveCorpus();
+    // Point the unit at a folder that does not exist yet.
+    const unit2 = { ...unit, folder: '9', files: [unit.files[1]] };
+    const plan2 = { ...plan, units: [unit2] };
+    const be = minimalBackend();
+    await saveFiling({ backend: be, nodes, roots: [], plan: plan2, destRootId: 'arch' });
+
+    expect(be.folders).toEqual([{ id: 'folder-0', name: 'Folder 9', parentId: 'b3' }]);
+    expect(be.moved).toEqual([{ fid: 'M', to: 'folder-0' }]);
   });
 });
